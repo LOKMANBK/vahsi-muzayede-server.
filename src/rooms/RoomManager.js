@@ -8,11 +8,11 @@ import { STATUS }                    from '../game/GameState.js';
 import { saveGameState, loadGameState } from '../utils/redis.js';
 import { logger }                    from '../utils/logger.js';
 
-const DEFAULT_RECONNECT_MS = 30_000;
+const DEFAULT_RECONNECT_MS = 20_000;   // 20 saniye — istekte belirtilen
 
 export class RoomManager {
-  #reconnectMs;
   #rooms = new Map();
+  #reconnectMs;
 
   constructor(reconnectMs = DEFAULT_RECONNECT_MS) {
     this.#reconnectMs = reconnectMs;
@@ -25,7 +25,6 @@ export class RoomManager {
       room     = await this.#getOrRestoreRoom(opts.gameId);
       playerId = this.#assignSlot(room, ws, opts.playerName);
     } else {
-      // Matchmaking: sadece hiç kimsenin bağlanmamış (awayAt=null) boş slotu olan odalar
       room     = this.#findFreshWaitingRoom() ?? this.#createRoom();
       playerId = this.#assignSlot(room, ws, opts.playerName);
     }
@@ -34,7 +33,10 @@ export class RoomManager {
     ws._playerId = playerId;
 
     logger.info('Oyuncu baglandi', { gameId: room.gameId, playerId });
-    this.#sendTo(ws, { type: 'CONNECTED', gameId: room.gameId, playerId, state: room.engine.getState() });
+    this.#sendTo(ws, {
+      type: 'CONNECTED', gameId: room.gameId, playerId,
+      state: room.engine.getState(),
+    });
 
     if (this.#bothConnected(room) && room.status === 'waiting') {
       room.status = 'playing';
@@ -62,24 +64,27 @@ export class RoomManager {
     slot.awayAt = Date.now();
     logger.info('Oyuncu ayrildi', { gameId, playerId });
 
-    // Rakibe bildir (sadece playing modda)
-    if (room.status === 'playing') {
-      this.#notifyOther(room, playerId, { type: 'OPPONENT_DISCONNECTED', playerId });
-    }
-
-    // Oyun henüz başlamadıysa (waiting) — reconnect bekleme, oda temizlensin
+    // Waiting modda → odayı sil
     if (room.status === 'waiting') {
-      // Odayı tamamen kaldır — matchmaking bunu tekrar kullanmasın
       this.#rooms.delete(gameId);
-      logger.info('Waiting oda kaldirildi (oyuncu baglanti kesti)', { gameId });
+      logger.info('Waiting oda kaldirildi', { gameId });
       return;
     }
 
-    // Playing — reconnect penceresi
-    slot.reconnectTimer = setTimeout(async () => {
-      logger.warn('Reconnect suresi doldu', { gameId, playerId });
-      await this.#closeRoom(room, 'timeout');
-    }, this.#reconnectMs);
+    // Playing modda → rakibe bildir, reconnect penceresi başlat
+    if (room.status === 'playing') {
+      this.#notifyOther(room, playerId, {
+        type: 'OPPONENT_DISCONNECTED',
+        playerId,
+        reconnectMs: this.#reconnectMs,
+      });
+
+      slot.reconnectTimer = setTimeout(async () => {
+        logger.warn('Reconnect suresi doldu', { gameId, playerId });
+        // Kopan oyuncu kaybeder, kalan oyuncu kazanır
+        await this.#forfeit(room, playerId);
+      }, this.#reconnectMs);
+    }
   }
 
   async handleAction(ws, action) {
@@ -112,6 +117,35 @@ export class RoomManager {
       await this.#closeRoom(room, 'finished');
     }
   }
+
+  // ── Forfeit: kopan oyuncu kaybeder ────────────────────────
+  async #forfeit(room, disconnectedPlayerId) {
+    const winnerId = disconnectedPlayerId === 'player1' ? 'player2' : 'player1';
+    logger.info('Forfeit', { gameId: room.gameId, loser: disconnectedPlayerId, winner: winnerId });
+
+    // Kazanana GAME_OVER_FORFEIT gönder
+    const winnerSlot = room.slots[winnerId];
+    const forfeitMsg = JSON.stringify({
+      type: 'GAME_OVER_FORFEIT',
+      winnerId,
+      loserId: disconnectedPlayerId,
+      reason: 'opponent_disconnected',
+    });
+
+    if (winnerSlot?.ws?.readyState === 1) {
+      winnerSlot.ws.send(forfeitMsg);
+    }
+
+    // Kopan oyuncuya da gönder (eğer hâlâ bağlantısı açık kaldıysa)
+    const loserSlot = room.slots[disconnectedPlayerId];
+    if (loserSlot?.ws?.readyState === 1) {
+      loserSlot.ws.send(forfeitMsg);
+    }
+
+    await this.#closeRoom(room, 'forfeit');
+  }
+
+  // ── Özel yardımcılar ─────────────────────────────────────
 
   #createRoom() {
     const gameId = Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -146,7 +180,6 @@ export class RoomManager {
     return room;
   }
 
-  // Sadece hiçbir oyuncunun hiç bağlanmadığı boş slot varsa waiting say
   #findFreshWaitingRoom() {
     for (const room of this.#rooms.values()) {
       if (room.status !== 'waiting') continue;
@@ -157,7 +190,7 @@ export class RoomManager {
   }
 
   #assignSlot(room, ws, name) {
-    // Reconnect: aynı isimli away slot
+    // Reconnect: aynı isimle geri dönen away slot
     for (const [pid, slot] of Object.entries(room.slots)) {
       if (slot.name === name && slot.ws === null && slot.awayAt !== null) {
         clearTimeout(slot.reconnectTimer);
@@ -167,7 +200,7 @@ export class RoomManager {
         return pid;
       }
     }
-    // Tamamen boş slot (henüz kimse bağlanmamış)
+    // Boş slot
     for (const [pid, slot] of Object.entries(room.slots)) {
       if (!slot.ws && slot.name === null) {
         slot.ws   = ws;
