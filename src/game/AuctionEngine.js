@@ -13,6 +13,7 @@ import {
   playersArray,
   currentQueueItem,
   makeAuction,
+  makeFreeChoice,
   makeRoundResult,
   makeLogLine,
 } from './GameState.js';
@@ -78,8 +79,15 @@ export function buildQueue() {
 
 /**
  * Bir sonraki turu başlatır.
- * Her iki oyuncu da müzayedeye katılabiliyorsa auction açar.
- * Biriyse/ikisi de yoksa otomatik dağıtır.
+ *
+ * - İkisi de teklif verebiliyorsa → normal müzayede.
+ * - Sadece biri teklif veremiyorsa VE bunun sebebi PARASIZLIK ise (envanterinde
+ *   hâlâ yeri var) → otomatik olarak hiç kimseye verilmez. Teklif verebilen
+ *   oyuncuya bir SEÇİM ekranı açılır: 💰 Bedava al, ya da ✋ Pas geç (hayvanı
+ *   parasız rakibe bırak).
+ * - Sadece biri teklif veremiyorsa VE bunun sebebi envanterinin dolu olmasıysa
+ *   (parasal değil — gerçekten katılamaz) → otomatik dağıtım.
+ * - İkisi de teklif veremiyorsa → ücretsiz otomatik dağıtım.
  *
  * @param   {GameState} state
  * @returns {{ state: GameState, event: GameEvent }}
@@ -91,17 +99,22 @@ export function beginRound(state) {
   }
 
   const item = currentQueueItem(state);
+  const p1 = state.players.player1;
+  const p2 = state.players.player2;
+  const room1  = p1.animals.length < 5;
+  const room2  = p2.animals.length < 5;
   const canBid = (p) => p.balance >= 1 && p.animals.length < 5;
-  const elig1 = canBid(state.players.player1);
-  const elig2 = canBid(state.players.player2);
+  const elig1  = canBid(p1);
+  const elig2  = canBid(p2);
 
-  // Normal müzayede
+  // Normal müzayede — ikisi de teklif verebiliyor.
   if (elig1 && elig2) {
     const firstBidderId = startingBidder(state.round);
     const next = {
       ...state,
       status:      STATUS.AUCTION,
       auction:     makeAuction(item, firstBidderId),
+      freeChoice:  null,
       roundResult: null,
     };
     return {
@@ -110,35 +123,113 @@ export function beginRound(state) {
     };
   }
 
-  // Otomatik dağıtım
-  let winnerId, price, reason;
+  // Sadece biri teklif verebiliyor.
   if (elig1 || elig2) {
-    winnerId = elig1 ? 'player1' : 'player2';
-    price    = 1;
-    reason   = 'opponent_cannot_bid';
-  } else {
-    const a1 = state.players.player1.animals.length;
-    const a2 = state.players.player2.animals.length;
-    winnerId = a1 < a2 ? 'player1' : a2 < a1 ? 'player2' : startingBidder(state.round);
-    price    = 0;
-    reason   = 'both_broke';
+    const deciderId       = elig1 ? 'player1' : 'player2';
+    const brokeId         = opponentOf(deciderId);
+    const brokeHasRoom    = deciderId === 'player1' ? room2 : room1;
+    const brokeIsBroke    = state.players[brokeId].balance < 1;
+
+    if (brokeHasRoom && brokeIsBroke) {
+      // Rakip sadece parasız — otomatik dağıtım YOK. Teklif verebilen
+      // oyuncuya karar ekranı açılır (bedava al / rakibe bırak).
+      const next = {
+        ...state,
+        status:      STATUS.FREE_CHOICE,
+        auction:     null,
+        freeChoice:  makeFreeChoice(item, deciderId, brokeId),
+        roundResult: null,
+      };
+      return {
+        state: next,
+        event: { type: 'FREE_CHOICE_STARTED', round: state.round, item, deciderId, brokeId },
+      };
+    }
+
+    // Rakip gerçekten katılamıyor (envanteri dolu) → otomatik dağıtım.
+    const resultData = { item, winnerId: deciderId, price: 1, auto: true, reason: 'opponent_cannot_bid' };
+    const roundResult = makeRoundResult(resultData);
+    const players = {
+      ...state.players,
+      [deciderId]: awardAnimal(state.players[deciderId], item, 1, state.round),
+    };
+    const next = {
+      ...state,
+      players,
+      status:      STATUS.ROUND_RESULT,
+      auction:     null,
+      freeChoice:  null,
+      roundResult,
+      log: [...state.log, makeLogLine(state.round, roundResult)],
+    };
+    return { state: next, event: { type: 'ITEM_AUTO_AWARDED', ...resultData } };
   }
 
-  const resultData = { item, winnerId, price, auto: true, reason };
+  // İkisi de teklif veremiyor.
+  const a1 = p1.animals.length;
+  const a2 = p2.animals.length;
+  const winnerId = a1 < a2 ? 'player1' : a2 < a1 ? 'player2' : startingBidder(state.round);
+  const resultData = { item, winnerId, price: 0, auto: true, reason: 'both_broke' };
   const roundResult = makeRoundResult(resultData);
   const players = {
     ...state.players,
-    [winnerId]: awardAnimal(state.players[winnerId], item, price, state.round),
+    [winnerId]: awardAnimal(state.players[winnerId], item, 0, state.round),
   };
   const next = {
     ...state,
     players,
     status:      STATUS.ROUND_RESULT,
     auction:     null,
+    freeChoice:  null,
     roundResult,
     log: [...state.log, makeLogLine(state.round, roundResult)],
   };
   return { state: next, event: { type: 'ITEM_AUTO_AWARDED', ...resultData } };
+}
+
+// ─── Serbest Karar (rakip parasız) ─────────────────────────
+
+/**
+ * Teklif verebilen oyuncu, parasız rakip karşısında kararını verir.
+ *
+ * @param {GameState} state
+ * @param {string}    deciderId — kararı veren oyuncu
+ * @param {'take'|'pass'} choice
+ * @returns {{ ok, state, event?, error? }}
+ */
+export function chooseFreeItem(state, deciderId, choice) {
+  if (state.status !== STATUS.FREE_CHOICE) {
+    return { ok: false, state, error: 'Karar aşaması aktif değil.' };
+  }
+  if (!state.freeChoice || state.freeChoice.deciderId !== deciderId) {
+    return { ok: false, state, error: 'Bu karar sana ait değil.' };
+  }
+  if (choice !== 'take' && choice !== 'pass') {
+    return { ok: false, state, error: `Geçersiz seçim: ${choice}` };
+  }
+
+  const { brokeId } = state.freeChoice;
+  const winnerId = choice === 'take' ? deciderId : brokeId;
+  const item     = currentQueueItem(state);
+
+  const resultData = {
+    item, winnerId, price: 0, auto: false,
+    reason: choice === 'take' ? 'free_choice_taken' : 'free_choice_passed',
+  };
+  const roundResult = makeRoundResult(resultData);
+  const players = {
+    ...state.players,
+    [winnerId]: awardAnimal(state.players[winnerId], item, 0, state.round),
+  };
+  const next = {
+    ...state,
+    players,
+    status:      STATUS.ROUND_RESULT,
+    freeChoice:  null,
+    roundResult,
+    log: [...state.log, makeLogLine(state.round, roundResult)],
+  };
+  return { ok: true, state: next, event: { type: 'FREE_ITEM_DECIDED', ...resultData } };
 }
 
 // ─── Teklif Verme ─────────────────────────────────────────
