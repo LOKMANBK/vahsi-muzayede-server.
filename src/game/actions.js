@@ -24,6 +24,9 @@ export const ACTION_TYPES = Object.freeze({
   // Müzayede
   PLACE_BID: 'PLACE_BID',
   PASS:      'PASS',
+
+  // Rakip parasız kaldığında: teklif verebilen oyuncu karar veriyor
+  CHOOSE_FREE_ITEM: 'CHOOSE_FREE_ITEM',
 });
 
 // ── Action Yapıcılar (Factory Functions) ─────────────────
@@ -43,6 +46,15 @@ export const Actions = {
   pass: (passerId) => ({
     type:    ACTION_TYPES.PASS,
     payload: { passerId },
+  }),
+
+  /**
+   * @param {string} deciderId — teklif verebilen oyuncu
+   * @param {'take'|'pass'} choice — 'take': bedava alır, 'pass': parasız rakibe bırakır
+   */
+  chooseFreeItem: (deciderId, choice) => ({
+    type:    ACTION_TYPES.CHOOSE_FREE_ITEM,
+    payload: { deciderId, choice },
   }),
 
   advanceRound: () => ({
@@ -90,6 +102,9 @@ export function applyAction(engine, action) {
 
     case ACTION_TYPES.PASS:
       return engine.pass(payload.passerId);
+
+    case ACTION_TYPES.CHOOSE_FREE_ITEM:
+      return engine.chooseFreeItem(payload.deciderId, payload.choice);
 
     case ACTION_TYPES.ADVANCE_ROUND:
       return engine.advanceRound();
