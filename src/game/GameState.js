@@ -28,6 +28,7 @@ export const PLAYER_IDS = ['player1', 'player2'];
 export const STATUS = Object.freeze({
   WAITING:      'waiting',      // Lobi — oyuncu bekleniyor
   AUCTION:      'auction',      // Müzayede sürüyor
+  FREE_CHOICE:  'free_choice',  // Rakip parasız — teklif verebilen taraf karar veriyor
   ROUND_RESULT: 'round_result', // Tur sonucu gösteriliyor
   COLLECTION:   'collection',   // Koleksiyonlar inceleniyor
   BATTLE:       'battle',       // Savaş sürüyor
@@ -70,6 +71,30 @@ function makeAuction(item, firstBidderId) {
     quantity:       item.quantity,
     currentBid:     null,   // { amount: number, bidderId: string } | null
     activeBidderId: firstBidderId,
+  };
+}
+
+/**
+ * Serbest-karar alt-modeli — sadece 'free_choice' statüsünde dolu.
+ * Rakibin parası bittiğinde (ama envanterinde yeri varken) devreye girer:
+ * teklif verebilen oyuncu, hayvanı BEDAVA alıp almayacağına ya da
+ * doğrudan parasız rakibe (yine bedava) bırakacağına karar verir.
+ */
+function makeFreeChoice(item, deciderId, brokeId) {
+  return {
+    animalId:    item.animal.id,
+    animalName:  item.animal.name,
+    animalEmoji: item.animal.emoji,
+    animalRarity: item.animal.rarity,
+    animalPower: {
+      attack:    item.animal.attack,
+      defense:   item.animal.defense,
+      speed:     item.animal.speed,
+      basePower: item.animal.basePower,
+    },
+    quantity:  item.quantity,
+    deciderId,   // teklif verebilen oyuncu — kararı o veriyor
+    brokeId,     // parası biten oyuncu — pas edilirse hayvan ona gider
   };
 }
 
@@ -145,6 +170,7 @@ export function makeInitialState(gameId = generateId('game'), playerNames = {}) 
     _queue: [],                 // [{ animal, quantity }] — private (underscore konvansiyonu)
 
     auction:     null,          // makeAuction() | null
+    freeChoice:  null,          // makeFreeChoice() | null
     roundResult: null,          // makeRoundResult() | null
     battle:      null,          // makeBattle() | null
 
@@ -190,4 +216,4 @@ export function makeLogLine(round, result) {
 }
 
 // Re-export alt-model yapıcılarını engine'ler kullanabilsin
-export { makeAuction, makeRoundResult, makeBattle };
+export { makeAuction, makeFreeChoice, makeRoundResult, makeBattle };
