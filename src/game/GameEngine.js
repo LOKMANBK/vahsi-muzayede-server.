@@ -5,7 +5,7 @@
 // =========================================================
 
 import { makeInitialState, STATUS } from './GameState.js';
-import { buildQueue, beginRound, placeBid, pass, advanceRound } from './AuctionEngine.js';
+import { buildQueue, beginRound, placeBid, pass, chooseFreeItem, advanceRound } from './AuctionEngine.js';
 import { revealBattle, nextBattle, makeBattleState } from './BattleEngine.js';
 
 export class GameEngine {
@@ -74,6 +74,18 @@ export class GameEngine {
    */
   pass(passerId) {
     const result = pass(this.#state, passerId);
+    if (!result.ok) return this.#fail(result.error);
+    this.#commit(result.state, result.event);
+    return this.#succeed(result.event);
+  }
+
+  /**
+   * Rakip parasız kaldığında teklif verebilen oyuncunun kararı.
+   * @param {'player1'|'player2'} deciderId
+   * @param {'take'|'pass'} choice
+   */
+  chooseFreeItem(deciderId, choice) {
+    const result = chooseFreeItem(this.#state, deciderId, choice);
     if (!result.ok) return this.#fail(result.error);
     this.#commit(result.state, result.event);
     return this.#succeed(result.event);
