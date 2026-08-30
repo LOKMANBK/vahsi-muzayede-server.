@@ -21,6 +21,9 @@
 [build]
 builder = "nixpacks"
 
+
+buildCommand = "npm install"
+
 [deploy]
 startCommand       = "node src/index.js"
 healthcheckPath    = "/health"
