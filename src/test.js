@@ -13,7 +13,7 @@ const waitMsg=(ws,t,ms=3000)=>new Promise((res,rej)=>{
   const fn=(raw)=>{ const m=JSON.parse(raw.toString()); if(m.type===t){clearTimeout(timer);ws.off('message',fn);res(m);} };
   ws.on('message',fn);
 });
-const waitSU=ws=>waitMsg(ws,'STATE_UPDATE').then(m=>m.state);
+const waitSU=ws=>waitMsg(ws,'STATE_UPDATE',5000).then(m=>m.state);
 const send=(ws,o)=>ws.send(JSON.stringify(o));
 const sendA=(ws,a)=>send(ws,{type:'ACTION',action:a});
 const openWs=port=>new Promise((res,rej)=>{const ws=new WebSocket('ws://localhost:'+port);ws.once('open',()=>res(ws));ws.once('error',rej);});
@@ -31,12 +31,31 @@ async function mkRoom(port,n1,n2){
   const c1=await waitMsg(ws1,'CONNECTED');
   send(ws2,{type:'JOIN',gameId:c1.gameId,playerName:n2});
   const c2=await waitMsg(ws2,'CONNECTED');
-  const st=await waitSU(ws1);
+  // Her iki oyuncu da Hazırım gönder — lobi geri sayımını tetikler
+  send(ws1,{type:'READY'});
+  send(ws2,{type:'READY'});
+  // Oyun başlayana kadar bekle (STATE_UPDATE — status != waiting)
+  const st = await new Promise((res,rej)=>{
+    const timer=setTimeout(()=>rej(new Error('mkRoom timeout')),8000);
+    const check=(raw)=>{
+      const m=JSON.parse(raw.toString());
+      if(m.type==='STATE_UPDATE' && m.state.status!=='waiting'){
+        clearTimeout(timer);ws1.off('message',check);res(m.state);
+      }
+    };
+    ws1.on('message',check);
+  });
   return {ws1,ws2,c1,c2,st};
 }
 
 const http=createServer();
-const {wss,rooms}=createWsServer(http,{reconnectMs:200});
+const TEST_AUTO_DELAYS = { round_result: 100, collection: 100, battle: 100 };
+const {wss,rooms}=createWsServer(http,{
+  reconnectMs:200,
+  lobbyCountdownMs:200,
+  autoDelays: TEST_AUTO_DELAYS,
+  battleNextDelayMs: 100,
+});
 attachHttpHandlers(http,()=>rooms);
 await new Promise(r=>http.listen(0,r));
 const port=http.address().port;
@@ -58,6 +77,8 @@ async function run(){
     chk('gameId',typeof c.gameId==='string');
     chk('playerId',['player1','player2'].includes(c.playerId));
     chk('waiting',c.state.status===STATUS.WAITING);
+    chk('reconnectToken',typeof c.reconnectToken==='string' && c.reconnectToken.length===64);
+    chk('_queue gizli',!('_queue' in c.state));
     ws.terminate();await wait(50);
   }
 
@@ -89,6 +110,40 @@ async function run(){
       chk('round_result',s.status===STATUS.ROUND_RESULT);
       chk('Kazanan',typeof s.roundResult.winnerId==='string');
     } else { chk('Oto-dagitim',s.status===STATUS.ROUND_RESULT); }
+    ws1.terminate();ws2.terminate();await wait(50);
+  }
+
+  console.log('\n[ Reconnect token ]');
+  {
+    const {ws1,ws2,c1,c2}=await mkRoom(port,'R1','R2');
+    // ws1 kopar
+    ws1.terminate();await wait(80);
+    // Geçersiz token ile reconnect denenirse hata gelmeli
+    const ws1bad=await openWs(port);
+    send(ws1bad,{type:'JOIN',gameId:c1.gameId,reconnectToken:'yanlis_token_123',playerName:'R1'});
+    const badRes=await waitMsg(ws1bad,'ERROR',1000).catch(()=>null);
+    chk('Gecersiz token reddedildi', badRes?.type==='ERROR');
+    ws1bad.terminate();
+    // Dogru token ile reconnect
+    const ws1new=await openWs(port);
+    send(ws1new,{type:'JOIN',gameId:c1.gameId,reconnectToken:c1.reconnectToken,playerName:'R1'});
+    const rc=await waitMsg(ws1new,'CONNECTED',1000).catch(()=>null);
+    chk('Token ile reconnect', rc?.playerId===c1.playerId);
+    ws1new.terminate();ws2.terminate();await wait(50);
+  }
+
+  console.log('\n[ Rate limiting ]');
+  {
+    const {ws1,ws2,c1,c2,st}=await mkRoom(port,'RL1','RL2');
+    let s=st;
+    // Kısa sürede çok sayıda ACTION gönder
+    if(s.status==='auction'){
+      const b=s.auction.activeBidderId;
+      const wb=b===c1.playerId?ws1:ws2;
+      for(let i=0;i<15;i++) sendA(wb,Actions.placeBid(b,1));
+      const errMsg=await waitMsg(wb,'ERROR',1000).catch(()=>null);
+      chk('Rate limit ERROR',errMsg?.type==='ERROR');
+    } else { chk('Rate limit (oto-dagitim, atla)', true); }
     ws1.terminate();ws2.terminate();await wait(50);
   }
 
@@ -128,24 +183,51 @@ async function run(){
   {
     const {ws1,ws2,c1,c2,st}=await mkRoom(port,'F1','F2');
     let s=st;
+
+    // Beklenilen herhangi bir STATE_UPDATE'i yakala
+    const nextState=(ws,ms=5000)=>new Promise((res,rej)=>{
+      const timer=setTimeout(()=>rej(new Error('nextState timeout')),ms);
+      const fn=(raw)=>{
+        const m=JSON.parse(raw.toString());
+        if(m.type==='STATE_UPDATE'){clearTimeout(timer);ws.off('message',fn);res(m.state);}
+      };
+      ws.on('message',fn);
+    });
+
+    // 10 tur — sunucu ROUND_RESULT'tan otomatik ilerletiyor (100ms)
+    // Sadece AUCTION'da aktif teklif/pas yapıyoruz
     for(let t=0;t<10;t++){
       if(s.status===STATUS.AUCTION){
         const b=s.auction.activeBidderId;
-        const wb=b===c1.playerId?ws1:ws2,wo=b===c1.playerId?ws2:ws1;
+        const wb=b===c1.playerId?ws1:ws2;
+        const wo=b===c1.playerId?ws2:ws1;
         const op=b===c1.playerId?c2.playerId:c1.playerId;
         sendA(wb,Actions.placeBid(b,1));
-        s=await waitSU(ws1);
-        if(s.status===STATUS.AUCTION){sendA(wo,Actions.pass(op));s=await waitSU(ws1);}
+        s=await nextState(ws1);
+        if(s.status===STATUS.AUCTION){
+          sendA(wo,Actions.pass(op));
+          s=await nextState(ws1);
+        }
       }
-      if(s.status===STATUS.ROUND_RESULT){sendA(ws1,Actions.advanceRound());s=await waitSU(ws1);}
+      // ROUND_RESULT: sunucu 100ms sonra otomatik ilerletiyor — biz bekliyoruz
+      if(s.status===STATUS.ROUND_RESULT){
+        s=await nextState(ws1);
+      }
     }
     chk('Collection',s.status===STATUS.COLLECTION);
-    sendA(ws1,Actions.startBattle());s=await waitSU(ws1);
+    // COLLECTION: sunucu 100ms sonra START_BATTLE yapıyor — ya da biz gönderebiliriz
+    if(s.status===STATUS.COLLECTION){
+      sendA(ws1,Actions.startBattle());
+      s=await nextState(ws1);
+    }
     chk('Battle',s.status===STATUS.BATTLE);
     for(let m=0;m<5;m++){
-      sendA(ws1,Actions.revealBattle());s=await waitSU(ws1);
+      await wait(50);
+      sendA(ws1,Actions.revealBattle());
+      s=await nextState(ws1);
       chk('Revealed '+(m+1),s.battle.revealed);
-      sendA(ws1,Actions.nextBattle());s=await waitSU(ws1);
+      // NEXT_BATTLE sunucu otomatik yapıyor (100ms) — bekliyoruz
+      s=await nextState(ws1);
     }
     chk('Final',s.status===STATUS.FINAL);
     chk('Skor=5',s.battle.scores.player1+s.battle.scores.player2===5);
