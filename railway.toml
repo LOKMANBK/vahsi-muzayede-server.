@@ -1,9 +1,49 @@
+# =========================================================
+#  railway.toml — Railway Deploy Yapılandırması
+#
+#  ÖNEMLİ: Çoklu instance (Replicas > 1) AYARI
+#  ──────────────────────────────────────────────────────
+#  Bu uygulama Redis pub/sub üzerinden instance'lar arası
+#  iletişim kurabiliyor. Ancak random matchmaking (quick
+#  match) Redis kuyruğu üzerinden çalışıyor; Railway'in
+#  yük dengeleyicisi sticky session desteklemediğinden
+#  bağlantılar farklı instance'lara düşebilir — bu tasarım
+#  gereği Redis queue ile çözülmüştür.
+#
+#  ÖNERİLEN AYAR: Production'da REDIS_URL mutlaka tanımlı
+#  olmalı; aksi hâlde her instance kendi in-memory store'unda
+#  çalışır ve instance'lar arası oda paylaşımı olmaz.
+#
+#  Tek instance: REDIS_URL olmadan da çalışır (geliştirme).
+#  Çoklu instance: REDIS_URL ZORUNLUdur.
+# =========================================================
+
 [build]
 builder = "nixpacks"
 
 [deploy]
-startCommand = "node src/index.js"
-healthcheckPath = "/health"
-healthcheckTimeout = 10
-restartPolicyType = "on_failure"
-restartPolicyMaxRetries = 3
+startCommand       = "node src/index.js"
+healthcheckPath    = "/health"
+healthcheckTimeout = 15
+
+# Graceful shutdown için yeterli süre:
+# Sentry flush ~2sn + aktif bağlantılar ~5sn + güvenlik payı
+numReplicas = 1
+
+[deploy.restartPolicy]
+type       = "on_failure"
+maxRetries = 5
+
+# ── Ortam Değişkenleri (referans) ────────────────────────
+# Gerçek değerleri Railway dashboard → Variables'tan girin.
+# Bu dosyada değer YAZMAYINbura sadece belgeleme amaçlıdır.
+#
+# REDIS_URL            = rediss://...
+# SUPABASE_URL         = https://...supabase.co
+# SUPABASE_SERVICE_KEY = eyJ...
+# SENTRY_DSN           = https://...@sentry.io/...
+# POSTHOG_KEY          = phc_...
+# STATS_TOKEN          = gizli_token
+# BOT_MATCH_DELAY_MS   = 30000
+# NODE_ENV             = production
+# LOG_LEVEL            = info
