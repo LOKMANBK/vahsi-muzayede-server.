@@ -68,9 +68,9 @@ const DEFAULT_LOBBY_COUNTDOWN_MS = 5_000;
 
 // "Otomatik" faz geçişleri için sunucu-taraflı süreler.
 const DEFAULT_AUTO_DELAYS = Object.freeze({
-  [STATUS.ROUND_RESULT]: 5_000,   // 5 sn — hayvan uçuş animasyonu için yeterli süre
+  [STATUS.ROUND_RESULT]: 3_000,
   [STATUS.COLLECTION]:   10_000,
-  [STATUS.BATTLE]:       5_000,   // "savaşıyor…" bekleme süresi
+  [STATUS.BATTLE]:       5_000,
 });
 const DEFAULT_BATTLE_NEXT_DELAY_MS = 4_000;
 
@@ -683,8 +683,6 @@ export class RoomManager {
           room_id:        room.gameId,
           player1_id:     p1Slot.userId ?? null,
           player2_id:     p2Slot.userId ?? null,
-          p1_username:    p1Profile?.username ?? p1Slot.name ?? null,
-          p2_username:    p2Profile?.username ?? p2Slot.name ?? null,
           winner_id:      winnerId === 'player1' ? p1Slot.userId : winnerId === 'player2' ? p2Slot.userId : null,
           p1_score:       s1,
           p2_score:       s2,
