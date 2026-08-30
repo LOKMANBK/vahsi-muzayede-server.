@@ -1,0 +1,3197 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<!-- viewport-fit=cover: iPhone notch/home indicator için safe-area'ya izin verir.
+     user-scalable=no intentionally omitted: accessibility guidelines (WCAG 1.4.4)
+     bunu yasaklıyor; çift-tap zoom yerine JS ile double-tap koruması yapıyoruz. -->
+<title>Vahşi Müzayede</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+
+/* ── Temel layout ── */
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:#111318;color:#e8e8ec;
+  min-height:100dvh;
+  min-height:100vh;
+  display:flex;align-items:center;justify-content:center;
+  padding:
+    max(16px,env(safe-area-inset-top))
+    max(16px,env(safe-area-inset-right))
+    max(16px,env(safe-area-inset-bottom))
+    max(16px,env(safe-area-inset-left));
+}
+body.game-active{overflow:hidden;overscroll-behavior:none;touch-action:pan-x pinch-zoom;}
+#app{width:100%;max-width:480px;}
+
+/* ── Tablet (768px+) ── */
+@media(min-width:768px){
+  #app{max-width:680px;}
+  .card{padding:24px 28px;}
+  .a-emoji{font-size:80px!important;}
+  .b-side{min-width:120px;}
+  body{align-items:flex-start;padding-top:max(40px,env(safe-area-inset-top));}
+  .side-shelf.left {left:max(0px,calc((100vw - 680px)/2 - 64px));}
+  .side-shelf.right{right:max(0px,calc((100vw - 680px)/2 - 64px));}
+  /* Menü: iki büyük buton yan yana */
+  .menu-primary-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .menu-primary-row .menu-btn{margin-bottom:0;}
+  /* Stats kartları tablet'te biraz büyüsün */
+  .stat-val{font-size:22px;}
+  /* Tab bar tablette max-width kısıtlı kalmasın */
+  .tab-bar{max-width:100%;}
+}
+@media(min-width:1024px){
+  #app{max-width:800px;}
+  .side-shelf.left {left:max(0px,calc((100vw - 800px)/2 - 80px));}
+  .side-shelf.right{right:max(0px,calc((100vw - 800px)/2 - 80px));}
+}
+
+/* ── Temel ── */
+.card{background:#1c1f28;border:1px solid #2a2d3a;border-radius:16px;padding:20px;margin-bottom:12px;}
+label{display:block;font-size:12px;color:#6b7080;margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px;}
+input{width:100%;padding:11px 14px;border-radius:10px;border:1px solid #2a2d3a;background:#111318;color:#e8e8ec;font-size:15px;margin-bottom:14px;transition:border-color .15s;outline:none;}
+input:focus{border-color:#4f7cff;}
+button{width:100%;padding:13px;border-radius:10px;border:none;font-size:15px;font-weight:700;cursor:pointer;transition:opacity .15s;}
+button:disabled{opacity:.4;cursor:not-allowed;}
+button:not(:disabled):hover{opacity:.88;}
+.btn-primary{background:#4f7cff;color:#fff;}
+.btn-secondary{background:#23262f;color:#e8e8ec;}
+.btn-success{background:#1a6a3a;color:#4fd671;border:1px solid #4fd67133;}
+.btn-danger{background:#6a1a1a;color:#e85f5f;border:1px solid #e85f5f33;}
+.btn-sm{padding:7px 14px;font-size:13px;width:auto;border-radius:8px;}
+.btn-link-bracket{background:none;border:none;color:#4f7cff;font-size:12px;font-weight:700;cursor:pointer;padding:4px 2px;white-space:nowrap;}
+.btn-link-bracket:hover{color:#7c9dff;}
+.btn-link-bracket.watch{color:#e8c14f;}
+.hint-link{font-size:13px;color:#4f7cff;cursor:pointer;text-align:center;margin-top:12px;}
+.hint-link:hover{text-decoration:underline;}
+
+/* ── Toast ── */
+.toast{position:fixed;top:max(16px,env(safe-area-inset-top));left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:10px;font-size:14px;z-index:300;max-width:90%;text-align:center;animation:slideDown .2s ease;}
+.toast-err{background:#8b1a1a;border:1px solid #e85f5f44;}
+.toast-ok{background:#1a4a2a;border:1px solid #4fd67144;color:#4fd671;}
+@keyframes slideDown{from{transform:translate(-50%,-10px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
+
+/* ── Animasyonlar ── */
+@keyframes popIn{0%{transform:scale(.5);opacity:0}70%{transform:scale(1.15)}100%{transform:scale(1);opacity:1}}
+@keyframes shakeX{0%,100%{transform:translateX(0)}20%{transform:translateX(-8px)}40%{transform:translateX(8px)}60%{transform:translateX(-5px)}80%{transform:translateX(5px)}}
+@keyframes glowPulse{0%,100%{box-shadow:0 0 0 0 #4f7cff44}50%{box-shadow:0 0 0 10px #4f7cff00}}
+@keyframes winnerPop{0%{transform:scale(1)}50%{transform:scale(1.08)}100%{transform:scale(1)}}
+@keyframes confettiFall{0%{transform:translateY(-20px) rotate(0deg);opacity:1}100%{transform:translateY(100vh) rotate(720deg);opacity:0}}
+@keyframes bidFlash{0%{background:#4f7cff33}100%{background:transparent}}
+@keyframes slideInRight{from{transform:translateX(60px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes slideInLeft{from{transform:translateX(-60px);opacity:0}to{transform:translateX(0);opacity:1}}
+@keyframes fadeInUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
+@keyframes heartbeat{0%,100%{transform:scale(1)}14%{transform:scale(1.2)}28%{transform:scale(1)}}
+@keyframes coinSpin{0%{transform:rotateY(0deg)}100%{transform:rotateY(360deg)}}
+@keyframes vsFlash{0%,100%{opacity:1;color:#4f7cff}50%{opacity:.4;color:#e8823d}}
+
+.anim-pop{animation:popIn .4s cubic-bezier(.17,.89,.32,1.28) both;}
+.fly-animal{position:fixed;font-size:44px;z-index:400;pointer-events:none;will-change:transform,opacity;animation:flyToSide .68s cubic-bezier(.32,.6,.3,1) forwards;filter:drop-shadow(0 4px 10px rgba(0,0,0,.45));}
+@keyframes flyToSide{
+  0%{transform:translate(0,0) scale(1) rotate(0deg);opacity:1;}
+  70%{opacity:1;}
+  100%{transform:translate(var(--fly-x),var(--fly-y)) scale(.35) rotate(var(--fly-rot));opacity:.05;}
+}
+.anim-shake{animation:shakeX .5s ease both;}
+.anim-glow{animation:glowPulse 1.5s ease infinite;}
+.anim-winner{animation:winnerPop .6s ease infinite;}
+.anim-slide-right{animation:slideInRight .35s ease both;}
+.anim-slide-left{animation:slideInLeft .35s ease both;}
+.anim-fade-up{animation:fadeInUp .3s ease both;}
+.anim-heartbeat{animation:heartbeat 1s ease infinite;}
+.anim-vs{animation:vsFlash 1s ease infinite;}
+
+/* Konfeti parçacıkları */
+.confetti-piece{
+  position:fixed;width:10px;height:10px;border-radius:2px;
+  animation:confettiFall linear forwards;
+  pointer-events:none;z-index:999;
+}
+
+/* Bid flash */
+.bid-flash{animation:bidFlash .6s ease both;}
+
+/* Hayvan giriş animasyonu */
+.animal-enter{animation:popIn .5s cubic-bezier(.17,.89,.32,1.28) both;}
+
+/* Skor değişim animasyonu */
+.score-change{animation:popIn .4s ease both;}
+
+/* Buton click efekti */
+button:not(:disabled):active{transform:scale(.96);}
+
+/* ── Modal overlay ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:200;display:flex;align-items:flex-end;justify-content:center;padding:0;}
+.modal-sheet{background:#1c1f28;border:1px solid #2a2d3a;border-radius:20px 20px 0 0;width:100%;max-width:480px;padding:20px;padding-bottom:max(20px,env(safe-area-inset-bottom));max-height:90vh;overflow-y:auto;animation:slideUp .25s ease;}
+@keyframes slideUp{from{transform:translateY(40px);opacity:0}to{transform:translateY(0);opacity:1}}
+.modal-handle{width:36px;height:4px;background:#3a3f4b;border-radius:2px;margin:0 auto 16px;}
+.modal-title{font-size:17px;font-weight:700;text-align:center;margin-bottom:16px;}
+
+/* ── Menü header ── */
+.menu-header{background:linear-gradient(160deg,#1a2040 0%,#1c1f28 100%);border:1px solid #2a2d3a;border-radius:16px;padding:20px;margin-bottom:12px;position:relative;overflow:hidden;}
+.menu-header::before{content:'';position:absolute;top:-40px;right:-40px;width:160px;height:160px;border-radius:50%;background:radial-gradient(circle,#4f7cff18,transparent 70%);}
+.user-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+.user-info{display:flex;align-items:center;gap:10px;}
+.avatar{width:42px;height:42px;border-radius:12px;background:#4f7cff22;border:2px solid #4f7cff44;display:flex;align-items:center;justify-content:center;font-size:20px;position:relative;}
+.notif-dot{position:absolute;top:-3px;right:-3px;width:10px;height:10px;background:#e85f5f;border-radius:50%;border:2px solid #1c1f28;}
+.username{font-size:15px;font-weight:700;}
+.user-level{font-size:12px;color:#6b7080;}
+.header-actions{display:flex;gap:8px;}
+.icon-btn{width:34px;height:34px;border-radius:9px;background:#23262f;border:1px solid #2a2d3a;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:background .15s;position:relative;}
+.icon-btn:hover{background:#2a2d3a;}
+.icon-badge{position:absolute;top:-4px;right:-4px;background:#e85f5f;color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;min-width:14px;text-align:center;}
+.xp-row{display:flex;justify-content:space-between;font-size:12px;color:#6b7080;margin-bottom:6px;}
+.xp-bar{height:6px;background:#23262f;border-radius:4px;overflow:hidden;}
+.xp-fill{height:100%;background:linear-gradient(90deg,#4f7cff,#7c9fff);border-radius:4px;transition:width .6s ease;}
+.animals-row{display:flex;justify-content:center;gap:8px;margin:14px 0 4px;font-size:32px;}
+.game-title{text-align:center;}
+.game-title h1{font-size:24px;font-weight:900;letter-spacing:1px;}
+.game-title p{font-size:12px;color:#6b7080;margin-top:4px;}
+
+/* ── Menü butonları ── */
+.menu-btn{display:flex;align-items:center;gap:12px;background:#1c1f28;border:1px solid #2a2d3a;border-radius:14px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .15s,background .15s;width:100%;text-align:left;}
+.menu-btn:hover{background:#23262f;border-color:#3a3f50;}
+.menu-btn-icon{font-size:24px;width:32px;text-align:center;}
+.menu-btn-text{flex:1;}
+.menu-btn-title{font-size:14px;font-weight:700;}
+.menu-btn-sub{font-size:12px;color:#6b7080;margin-top:2px;}
+.menu-btn-arrow{color:#3a3f50;font-size:18px;}
+.menu-btn.primary{background:#1a2040;border-color:#4f7cff44;}
+.menu-btn.primary:hover{border-color:#4f7cff88;background:#1e2648;}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+.grid-btn{background:#1c1f28;border:1px solid #2a2d3a;border-radius:14px;padding:14px;cursor:pointer;transition:border-color .15s,background .15s;text-align:center;width:100%;border:1px solid #2a2d3a;}
+.grid-btn:hover{background:#23262f;border-color:#3a3f50;}
+.grid-btn-icon{font-size:26px;margin-bottom:6px;}
+.grid-btn-title{font-size:13px;font-weight:700;}
+.grid-btn-sub{font-size:11px;color:#6b7080;margin-top:2px;}
+.stats-row{display:flex;gap:8px;margin-bottom:10px;}
+.stat-card{flex:1;background:#1c1f28;border:1px solid #2a2d3a;border-radius:12px;padding:10px;text-align:center;}
+.stat-val{font-size:18px;font-weight:800;}
+.stat-lbl{font-size:10px;color:#6b7080;margin-top:2px;}
+
+/* ── Tab bar ── */
+.tab-bar{display:flex;background:#1c1f28;border:1px solid #2a2d3a;border-radius:14px;padding:5px;gap:3px;}
+.tab-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 4px;border-radius:10px;cursor:pointer;font-size:10px;color:#6b7080;border:none;background:none;transition:background .15s,color .15s;position:relative;}
+.tab-item.active{background:#23262f;color:#e8e8ec;}
+.tab-item:hover:not(.active){color:#a0a5b1;}
+.tab-icon{font-size:18px;}
+.tab-badge{position:absolute;top:4px;right:calc(50% - 16px);background:#e85f5f;color:#fff;font-size:9px;font-weight:700;border-radius:8px;padding:1px 4px;min-width:14px;text-align:center;}
+
+/* ── Arkadaşlar ekranı ── */
+.screen-header{display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+.back-btn{width:32px;height:32px;border-radius:9px;background:#23262f;border:1px solid #2a2d3a;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:18px;}
+.screen-title{font-size:17px;font-weight:700;flex:1;}
+.search-box{display:flex;gap:8px;margin-bottom:16px;}
+.search-box input{margin-bottom:0;flex:1;}
+.section-label{font-size:11px;font-weight:700;letter-spacing:1px;color:#6b7080;text-transform:uppercase;margin:14px 0 8px;padding:0 2px;}
+
+/* Arkadaş satırı */
+.friend-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #2a2d3a22;}
+.friend-row:last-child{border-bottom:none;}
+.friend-avatar{width:36px;height:36px;border-radius:10px;background:#23262f;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;}
+.friend-info{flex:1;min-width:0;}
+.friend-name{font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.friend-meta{font-size:12px;color:#6b7080;margin-top:1px;}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px;}
+.sd-online{background:#4fd671;} .sd-ingame{background:#e8c14f;} .sd-offline{background:#3a3f4b;}
+.friend-actions{display:flex;gap:6px;flex-shrink:0;}
+
+/* ── Profil kartı ── */
+.profile-card-header{text-align:center;padding:8px 0 20px;}
+.profile-big-avatar{font-size:56px;margin-bottom:8px;}
+.profile-name{font-size:22px;font-weight:800;margin-bottom:2px;}
+.profile-level{font-size:13px;color:#6b7080;margin-bottom:16px;}
+.profile-stats{display:flex;gap:8px;margin-bottom:16px;}
+.profile-stat{flex:1;text-align:center;background:#111318;border-radius:10px;padding:10px 6px;}
+.ps-val{font-size:18px;font-weight:800;}
+.ps-lbl{font-size:10px;color:#6b7080;margin-top:2px;}
+.profile-mmr{text-align:center;font-size:13px;color:#6b7080;margin-bottom:16px;}
+.profile-fav{text-align:center;font-size:13px;color:#6b7080;margin-bottom:16px;}
+
+/* ── Match history ── */
+.match-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #2a2d3a22;}
+.match-row:last-child{border-bottom:none;}
+.match-opponent{flex:1;font-size:14px;font-weight:600;}
+.match-score{font-size:14px;font-weight:700;color:#a0a5b1;}
+.match-result{font-size:14px;margin-left:4px;}
+.match-time{font-size:11px;color:#6b7080;}
+
+/* ── Lobi ekranı ── */
+.lobby-code-box{background:#111318;border-radius:12px;padding:16px;text-align:center;margin-bottom:14px;}
+.lobby-code{font-family:monospace;font-size:32px;font-weight:900;letter-spacing:6px;color:#4f7cff;margin-bottom:8px;}
+.lobby-hint{font-size:12px;color:#6b7080;}
+.lobby-players{display:flex;gap:8px;margin-bottom:14px;}
+.lobby-player{flex:1;background:#111318;border-radius:10px;padding:12px;text-align:center;border:2px solid #2a2d3a;transition:border-color .3s;}
+.lobby-player.ready{border-color:#4fd671;}
+.lp-icon{font-size:28px;margin-bottom:4px;}
+.lp-name{font-size:13px;font-weight:600;}
+.lp-status{font-size:11px;color:#6b7080;margin-top:3px;}
+.lobby-player.ready .lp-status{color:#4fd671;}
+
+/* ── Oyun state ekranları ── */
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;}
+.dot-green{background:#4fd671;} .dot-yellow{background:#e8c14f;} .dot-red{background:#e85f5f;}
+.dot-pulse{animation:pulse 1.4s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.status-bar{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#6b7080;margin-bottom:10px;}
+.player-badges{display:flex;gap:8px;margin-bottom:12px;}
+.p-badge{flex:1;background:#111318;border-radius:10px;padding:10px 12px;border:2px solid transparent;}
+.p-badge.active{border-color:#4f7cff;}
+.p-badge.me{background:#151b30;}
+.p-name{font-size:12px;color:#6b7080;margin-bottom:2px;}
+.p-bal{font-size:18px;font-weight:700;transition:color .4s;}
+.p-bal.draining{color:#e85f5f;animation:shakeX .3s ease;}
+@keyframes countDown{from{color:#e85f5f;transform:scale(1.2)}to{color:#e8e8ec;transform:scale(1)}}
+.p-bal.changed{animation:countDown .5s ease forwards;}
+
+/* ── Kenar hayvan rafları ── */
+.side-shelf{
+  position:fixed;
+  top:50%;
+  transform:translateY(-50%);
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  z-index:50;
+  pointer-events:none;
+  /* İçeriğin home indicator altına düşmemesi için */
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.side-shelf.left  { left:env(safe-area-inset-left,0px); align-items:flex-start; }
+.side-shelf.right { right:env(safe-area-inset-right,0px); align-items:flex-end; }
+
+.side-animal{
+  display:flex;
+  align-items:center;
+  gap:5px;
+  background:rgba(20,23,32,.92);
+  border:1px solid #3a3f50;
+  border-radius:10px;
+  padding:6px 10px;
+  white-space:nowrap;
+  animation:shelfItemIn .35s cubic-bezier(.17,.89,.32,1.28) both;
+  box-shadow:0 2px 10px rgba(0,0,0,.4);
+}
+.side-shelf.left  .side-animal { border-left:3px solid #4f7cff; border-radius:0 10px 10px 0; }
+.side-shelf.right .side-animal { border-right:3px solid #e8823d; border-radius:10px 0 0 10px; }
+.side-animal .sa-emoji{ font-size:52px; line-height:1; }
+.side-animal .sa-count{ font-size:15px; font-weight:700; color:#a0a5b1; }
+
+/* Battle modunda: kazanan yeşil, kaybeden kırmızı */
+.side-animal.battle-win {
+  border-color:#4fd671 !important;
+  box-shadow:0 0 10px #4fd67155;
+  animation:shelfWinGlow 1.5s ease infinite;
+}
+.side-animal.battle-win .sa-emoji { font-size:64px; }
+.side-animal.battle-lose {
+  border-color:#e85f5f !important;
+  opacity:.5;
+}
+.side-animal.battle-lose .sa-emoji { font-size:64px; }
+@keyframes shelfWinGlow{
+  0%,100%{box-shadow:0 0 6px #4fd67155;}
+  50%{box-shadow:0 0 18px #4fd671aa;}
+}
+@keyframes shelfItemIn{
+  0%{transform:scale(.4) translateX(-20px);opacity:0;}
+  70%{transform:scale(1.08) translateX(2px);}
+  100%{transform:scale(1) translateX(0);opacity:1;}
+}
+
+/* ── Uçan hayvan animasyonu ── */
+.flying-animal{
+  position:fixed;
+  font-size:68px;
+  z-index:500;
+  pointer-events:none;
+  filter:drop-shadow(0 8px 20px rgba(0,0,0,.85));
+}
+.animal-big{text-align:center;padding:16px 0;}
+.a-emoji{font-size:60px;line-height:1;margin-bottom:8px;}
+.a-name{font-size:17px;font-weight:700;margin-bottom:4px;}
+.a-meta{font-size:12px;color:#6b7080;}
+.rarity-badge{display:inline-block;padding:2px 10px;border-radius:100px;font-size:11px;font-weight:700;text-transform:uppercase;margin-top:6px;}
+.bid-box{text-align:center;margin-bottom:12px;}
+.bid-amt{font-size:22px;font-weight:700;margin-bottom:4px;}
+.bid-who{font-size:12px;color:#6b7080;}
+.turn-box{text-align:center;padding:8px;background:#111318;border-radius:8px;margin-bottom:12px;font-size:14px;}
+.bid-row{display:flex;gap:8px;margin-bottom:8px;}
+.bid-row input{margin-bottom:0;flex:1;}
+.bid-row button{width:auto;flex:0 0 100px;}
+.observer{text-align:center;font-size:13px;color:#6b7080;margin-top:8px;}
+.battle-vs{display:flex;align-items:center;justify-content:center;gap:16px;padding:14px 0;}
+.b-side{text-align:center;flex:1;}
+.b-emoji{font-size:48px;transition:all .3s;}
+.b-emoji.winner-pulse{animation:winnerBounce 0.6s ease infinite;filter:drop-shadow(0 0 14px #4fd671);}
+.b-emoji.loser-dim{opacity:.4;filter:grayscale(70%);}
+@keyframes winnerBounce{0%,100%{transform:scale(1)}50%{transform:scale(1.28)}}
+.b-power{font-size:22px;font-weight:800;margin-top:6px;}
+.b-vs{font-size:13px;color:#6b7080;font-weight:700;}
+.winner-glow{color:#4fd671;animation:winnerPop .8s ease infinite;}
+.score-line{text-align:center;font-size:13px;color:#6b7080;margin-bottom:8px;}
+.final-score{font-size:44px;font-weight:900;text-align:center;margin:8px 0;}
+.final-title{font-size:20px;font-weight:800;text-align:center;margin-bottom:14px;}
+.coll-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px;margin-top:8px;}
+.coll-item{text-align:center;background:#111318;border-radius:8px;padding:8px 4px;font-size:11px;}
+.reconnect-bar{background:#1e1a10;border:1px solid #e8c14f33;border-radius:12px;padding:12px;text-align:center;margin-bottom:12px;font-size:14px;}
+.ready-row{display:flex;gap:8px;margin-bottom:10px;}
+.ready-item{flex:1;text-align:center;background:#111318;border-radius:10px;padding:10px 6px;font-size:12px;}
+.ready-item.done{background:#1a4a2a;color:#4fd671;border:1px solid #4fd67133;}
+.countdown-wrap{margin-top:10px;}
+.countdown-label{font-size:12px;color:#6b7080;text-align:center;margin-bottom:4px;}
+.countdown-bar{height:4px;background:#23262f;border-radius:4px;overflow:hidden;}
+.countdown-fill{height:100%;background:#4f7cff;border-radius:4px;transition:width .25s linear;}
+
+/* ── Rövanş butonu ── */
+.rematch-btn{background:linear-gradient(135deg,#6a1a1a,#8b2020);border:1px solid #e85f5f44;color:#e85f5f;font-size:16px;padding:14px;border-radius:12px;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px;}
+.rematch-btn:hover:not(:disabled){opacity:.9;border-color:#e85f5f88;}
+
+/* ── Bildirimler ── */
+.notif-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #2a2d3a22;}
+.notif-row:last-child{border-bottom:none;}
+.notif-icon{font-size:22px;width:36px;text-align:center;flex-shrink:0;}
+.notif-text{flex:1;font-size:13px;}
+.notif-time{font-size:11px;color:#6b7080;margin-top:2px;}
+.notif-actions{display:flex;gap:6px;}
+
+/* ── Bildirim Dropdown Paneli ── */
+.notif-panel-overlay{position:fixed;inset:0;z-index:150;background:transparent;}
+.notif-panel{
+  position:fixed;top:env(safe-area-inset-top,0);right:env(safe-area-inset-right,0);
+  width:min(340px, 100vw);
+  max-height:80vh;
+  background:#1c1f28;
+  border-left:1px solid #2a2d3a;
+  border-bottom:1px solid #2a2d3a;
+  border-radius:0 0 0 16px;
+  box-shadow:-4px 4px 24px rgba(0,0,0,.5);
+  z-index:151;
+  display:flex;flex-direction:column;
+  animation:slideInRight .2s ease;
+}
+@keyframes slideInRight{from{transform:translateX(100%);opacity:0}to{transform:translateX(0);opacity:1}}
+.notif-panel-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:14px 16px 10px;
+  border-bottom:1px solid #2a2d3a;
+  flex-shrink:0;
+}
+.notif-panel-title{font-size:14px;font-weight:700;display:flex;align-items:center;gap:6px;}
+.notif-panel-close{
+  width:28px;height:28px;border-radius:8px;background:#23262f;
+  border:1px solid #2a2d3a;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+}
+.notif-panel-close:hover{background:#2a2d3a;}
+.notif-panel-body{overflow-y:auto;padding:6px 12px;flex:1;}
+.notif-panel-empty{text-align:center;color:#6b7080;font-size:13px;padding:24px 0;}
+.np-row{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid #2a2d3a22;}
+.np-row:last-child{border-bottom:none;}
+.np-row.unread{background:#1a2040;border-radius:8px;padding:10px 8px;margin:2px 0;}
+.np-icon{font-size:20px;width:30px;text-align:center;flex-shrink:0;margin-top:1px;}
+.np-body{flex:1;min-width:0;}
+.np-text{font-size:13px;line-height:1.4;}
+.np-time{font-size:11px;color:#6b7080;margin-top:2px;}
+.np-acts{display:flex;gap:6px;margin-top:6px;}
+.np-dismiss{flex-shrink:0;align-self:flex-start;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#6b7080;font-size:12px;cursor:pointer;margin-top:1px;}
+.np-dismiss:hover{background:#2a2d3a;color:#e85f5f;}
+
+/* ── Düello davet bekleme ── */
+.duel-wait-screen{text-align:center;padding:8px 0;}
+.duel-wait-avatar{font-size:48px;margin-bottom:8px;}
+.duel-wait-title{font-size:18px;font-weight:800;margin-bottom:4px;}
+.duel-wait-sub{font-size:13px;color:#6b7080;margin-bottom:20px;}
+.duel-wait-bar{height:4px;background:#23262f;border-radius:4px;overflow:hidden;margin-bottom:6px;}
+.duel-wait-fill{height:100%;background:#4f7cff;border-radius:4px;transition:width 1s linear;}
+.duel-wait-timer{font-size:12px;color:#6b7080;margin-bottom:16px;}
+
+/* ── Geri sayım ── */
+.countdown-screen{
+  position:fixed;inset:0;background:#111318;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:100;
+}
+.countdown-number{
+  font-size:120px;font-weight:900;color:#4f7cff;
+  animation:countPop .8s ease;
+  line-height:1;
+}
+@keyframes countPop{0%{transform:scale(1.5);opacity:0}100%{transform:scale(1);opacity:1}}
+.countdown-label{font-size:18px;color:#6b7080;margin-top:16px;}
+.countdown-go{font-size:38px;font-weight:900;color:#e85f5f;letter-spacing:1px;text-shadow:0 0 18px #e85f5f88;animation:goPop .4s ease .55s both;}
+
+/* ── Kılıç çarpışma efekti ── */
+.clash-wrap{position:relative;width:220px;height:100px;display:flex;align-items:center;justify-content:center;}
+.clash-sword{position:absolute;top:50%;font-size:64px;transform-origin:center;filter:drop-shadow(0 0 6px #0008);}
+.clash-sword-l{left:0;transform:translate(0,-50%) rotate(-25deg);animation:clashInL .5s cubic-bezier(.2,.8,.3,1) forwards;}
+.clash-sword-r{right:0;transform:translate(0,-50%) rotate(25deg) scaleX(-1);animation:clashInR .5s cubic-bezier(.2,.8,.3,1) forwards;}
+@keyframes clashInL{0%{left:-40px;opacity:0}70%{opacity:1}100%{left:calc(50% - 46px);opacity:1}}
+@keyframes clashInR{0%{right:-40px;opacity:0}70%{opacity:1}100%{right:calc(50% - 46px);opacity:1}}
+.clash-spark{position:absolute;top:50%;left:50%;font-size:0;opacity:0;transform:translate(-50%,-50%) scale(.2);animation:clashSpark .5s ease .45s forwards;}
+@keyframes clashSpark{0%{font-size:0;opacity:0;transform:translate(-50%,-50%) scale(.2)}40%{font-size:70px;opacity:1;transform:translate(-50%,-50%) scale(1.3)}100%{font-size:40px;opacity:0;transform:translate(-50%,-50%) scale(1.6)}}
+@keyframes goPop{0%{transform:scale(.6);opacity:0}60%{transform:scale(1.15);opacity:1}100%{transform:scale(1);opacity:1}}
+.countdown-screen.shake{animation:screenShake .4s ease .45s;}
+@keyframes screenShake{0%,100%{transform:translate(0,0)}20%{transform:translate(-6px,3px)}40%{transform:translate(6px,-3px)}60%{transform:translate(-4px,2px)}80%{transform:translate(4px,-2px)}}
+
+/* ── Lobi VS ekranı ── */
+.lobby-vs-wrap{display:flex;align-items:center;justify-content:center;gap:0;margin:16px 0;}
+.lobby-vs-side{flex:1;text-align:center;padding:16px 8px;}
+.lvs-avatar{font-size:40px;margin-bottom:6px;}
+.lvs-name{font-size:16px;font-weight:800;margin-bottom:2px;}
+.lvs-level{font-size:12px;color:#6b7080;margin-bottom:8px;}
+.lvs-ready{font-size:13px;font-weight:700;padding:4px 10px;border-radius:20px;}
+.lvs-ready.yes{background:#1a4a2a;color:#4fd671;}
+.lvs-ready.no{background:#23262f;color:#6b7080;}
+.lobby-vs-divider{font-size:22px;font-weight:900;color:#4f7cff;padding:0 8px;flex-shrink:0;}
+
+/* ── Onay modal ── */
+.confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:250;display:flex;align-items:center;justify-content:center;padding:20px;}
+.confirm-box{background:#1c1f28;border:1px solid #2a2d3a;border-radius:16px;padding:24px;width:100%;max-width:340px;text-align:center;}
+.confirm-title{font-size:17px;font-weight:800;margin-bottom:8px;}
+.confirm-sub{font-size:13px;color:#6b7080;margin-bottom:20px;line-height:1.5;}
+.confirm-btns{display:flex;gap:10px;}
+</style>
+</head>
+<body>
+<script>
+// =========================================================
+//  SES SİSTEMİ — Web Audio API (yükleme gerektirmez)
+// =========================================================
+const AudioCtx = window.AudioContext || window.webkitAudioContext;
+let _actx = null;
+let _muted = localStorage.getItem('vm_muted') === '1';
+let _audioUnlocked = false;
+
+// İlk kullanıcı dokunuşunda ses kilidini aç
+function unlockAudio(){
+  if(_audioUnlocked) return;
+  _audioUnlocked = true;
+  if(!_actx) _actx = new AudioCtx();
+  // Sessiz bir ses çal — tarayıcı kilidini açar
+  const o = _actx.createOscillator();
+  const g = _actx.createGain();
+  g.gain.value = 0;
+  o.connect(g); g.connect(_actx.destination);
+  o.start(); o.stop(_actx.currentTime + 0.001);
+  if(_actx.state === 'suspended') _actx.resume();
+}
+document.addEventListener('click', unlockAudio, {once:false});
+document.addEventListener('touchstart', unlockAudio, {once:false});
+
+function getAudioCtx(){
+  if(!_actx) _actx = new AudioCtx();
+  if(_actx.state === 'suspended') _actx.resume();
+  return _actx;
+}
+
+// Güçlü ses yardımcısı
+function playNote(freq, type, volume, startTime, duration, freqEnd=null){
+  const ctx = getAudioCtx();
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = type;
+  o.connect(g); g.connect(ctx.destination);
+  o.frequency.setValueAtTime(freq, ctx.currentTime + startTime);
+  if(freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, ctx.currentTime + startTime + duration);
+  g.gain.setValueAtTime(0.001, ctx.currentTime + startTime);
+  g.gain.linearRampToValueAtTime(volume, ctx.currentTime + startTime + 0.02);
+  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startTime + duration);
+  o.start(ctx.currentTime + startTime);
+  o.stop(ctx.currentTime + startTime + duration + 0.05);
+}
+
+const SFX = {
+  // Müzayede teklif sesi — kısa bip
+  bid(amount=1, maxBalance=20){
+    if(_muted) return;
+    try{
+      const ctx = getAudioCtx();
+      // Teklif oranına göre ses frekansı ve şiddeti artar
+      const ratio = Math.min(1, amount / maxBalance);
+      const baseFreq = 440 + ratio * 600;   // 440Hz → 1040Hz
+      const topFreq  = baseFreq * (1.3 + ratio * 0.5);
+      const duration = 0.12 + ratio * 0.15;
+      const volume   = 0.12 + ratio * 0.18;
+
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.setValueAtTime(baseFreq, ctx.currentTime);
+      o.frequency.exponentialRampToValueAtTime(topFreq, ctx.currentTime + duration);
+      g.gain.setValueAtTime(volume, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration + 0.05);
+      o.start(); o.stop(ctx.currentTime + duration + 0.08);
+
+      // Yüksek teklif → ekstra harmonik ses
+      if(ratio > 0.5){
+        const o2 = ctx.createOscillator();
+        const g2 = ctx.createGain();
+        o2.type = 'triangle';
+        o2.connect(g2); g2.connect(ctx.destination);
+        o2.frequency.setValueAtTime(topFreq * 1.5, ctx.currentTime);
+        g2.gain.setValueAtTime(volume * 0.4, ctx.currentTime);
+        g2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+        o2.start(); o2.stop(ctx.currentTime + duration);
+      }
+    }catch{}
+  },
+  // Pas geçme — aşağı inen ses
+  pass(){
+    if(_muted) return;
+    try{
+      const ctx = getAudioCtx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.setValueAtTime(440, ctx.currentTime);
+      o.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.25);
+      g.gain.setValueAtTime(0.12, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      o.start(); o.stop(ctx.currentTime + 0.3);
+    }catch{}
+  },
+  // Müzayede kazanma — fanfar
+  win(){
+    if(_muted) return;
+    try{
+      const ctx = getAudioCtx();
+      [[523,0],[659,.1],[784,.2],[1047,.35]].forEach(([f,t])=>{
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0, ctx.currentTime + t);
+        g.gain.linearRampToValueAtTime(0.18, ctx.currentTime + t + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.3);
+        o.start(ctx.currentTime + t);
+        o.stop(ctx.currentTime + t + 0.35);
+      });
+    }catch{}
+  },
+  // Kaybetme — düşen ton
+  lose(){
+    if(_muted) return;
+    try{
+      // Yenilgi müziği: düşen minor arpej + ağır davul + son gümbürtü
+      // 1. Düşen minor arpej (hüzünlü)
+      [[523,0,.15],[415,.12,.14],[349,.24,.13],[262,.38,.16],[220,.54,.18],[174,.72,.2]].forEach(([f,t,v])=>{
+        playNote(f,'triangle',v,t,0.4);
+      });
+      // 2. Ağır tek davul vuruşu
+      playNote(55,'triangle',0.55,0.05,0.6,25);
+      playNote(80,'triangle',0.35,0.35,0.5,30);
+      // 3. Son çöküş
+      playNote(174,'sawtooth',0.3,0.75,0.5,60);
+      playNote(130,'sawtooth',0.4,0.85,0.7,40);
+      playNote(40,'sine',0.5,0.9,1.0,20); // derin son
+    }catch(e){console.warn('lose:',e);}
+  },
+  // Savaş başlıyor — epik
+  battleStart(){
+    if(_muted) return;
+    try{
+      const ctx = getAudioCtx();
+      // Davul benzeri düşük frekanslı vuruş
+      [0, 0.15, 0.3].forEach(t=>{
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'triangle';
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.setValueAtTime(80, ctx.currentTime + t);
+        o.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + t + 0.3);
+        g.gain.setValueAtTime(0.3, ctx.currentTime + t);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.35);
+        o.start(ctx.currentTime + t);
+        o.stop(ctx.currentTime + t + 0.4);
+      });
+    }catch{}
+  },
+  // VS açılma — gerilim
+  reveal(){ this.clashSword(); }, // eski çağrılar için alias
+  clashSword(){
+    if(_muted) return;
+    try{
+      // Metalik kılıç çarpışması: ani tiz darbe + rezonans yankı
+      playNote(800,  'sawtooth', 0.5,  0,    0.05, 4000); // ani çarpma
+      playNote(4000, 'square',   0.3,  0.03, 0.18, 300);  // tiz parıltı
+      playNote(600,  'triangle', 0.35, 0.06, 0.4,  80);   // metal rezonans
+      playNote(200,  'triangle', 0.25, 0.08, 0.5,  50);   // bass titreşim
+      // Kıvılcım sesi: tiz çıtlama serisi
+      [0.02,0.06,0.10,0.15].forEach(t=>
+        playNote(3000+Math.random()*1000,'square',0.15,t,0.05,1000+Math.random()*500)
+      );
+    }catch(e){console.warn('clashSword:',e);}
+  },
+  // Sayım sesi — tık tık
+  tick(){
+    if(_muted) return;
+    try{
+      const ctx = getAudioCtx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.frequency.value = 1200;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.06, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+      o.start(); o.stop(ctx.currentTime + 0.06);
+    }catch{}
+  },
+  // Geri sayım son saniye — yüksek tık
+  tickFinal(){
+    if(_muted) return;
+    try{
+      const ctx = getAudioCtx();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.frequency.value = 1800;
+      o.connect(g); g.connect(ctx.destination);
+      g.gain.setValueAtTime(0.1, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+      o.start(); o.stop(ctx.currentTime + 0.1);
+    }catch{}
+  },
+  // Bildirim
+  // ── DÜELLO SESLERİ ────────────────────────────────────
+  // Davet gönderme: "SAVAŞA DAVET" — ağır, agresif, korkutucu
+  duelChallenge(){
+    if(_muted) return;
+    try{
+      // Ağır gürleyen davul: 3 vuruş giderek hızlanan
+      [0, 0.13, 0.22].forEach((t,i)=>{
+        playNote(90-i*10, 'triangle', 0.5, t, 0.28, 30);
+      });
+      // Büyük savaş borusu: düşükten yükseğe patlayan
+      playNote(80, 'sawtooth', 0.4, 0.08, 0.55, 520);
+      // İkinci borusu: daha tiz, 0.2sn gecikmeli
+      playNote(120, 'sawtooth', 0.35, 0.28, 0.5, 700);
+      // Kılıç çekiş sesi: çok tiz keskin
+      playNote(2200, 'square', 0.25, 0.55, 0.3, 180);
+      // Son gümbürtü: düşük bass
+      playNote(55, 'sine', 0.6, 0.6, 0.45, 25);
+    }catch(e){console.warn('duelChallenge ses hatası:',e);}
+  },
+  // Davet kabul: "KABUL EDİYORUM" — güçlü çakışma + zafer
+  duelAccept(){
+    if(_muted) return;
+    try{
+      // Metalik kılıç çakışması: ani yükselen-alçalan çarpma
+      playNote(300, 'sawtooth', 0.5, 0, 0.06, 3000);
+      playNote(3000, 'sawtooth', 0.4, 0.04, 0.2, 150);
+      // Yankı: çakışma sönümleniyor
+      playNote(800, 'triangle', 0.3, 0.08, 0.35, 120);
+      // Agresif arpej: 5 nota hızla yükselen
+      [[110,0.15],[165,0.22],[220,0.29],[330,0.36],[440,0.44],[660,0.54]].forEach(([f,t])=>{
+        playNote(f, 'square', 0.28, t, 0.22);
+      });
+      // Bass gümbürtü: kabul gücü
+      playNote(60, 'triangle', 0.45, 0.2, 0.5, 40);
+    }catch(e){console.warn('duelAccept ses hatası:',e);}
+  },
+  // Davet reddi: "HAYIR" — sert kapanma, hayal kırıklığı
+  duelDecline(){
+    if(_muted) return;
+    try{
+      // Sert metal kapı/kalkan çarptı
+      playNote(400, 'sawtooth', 0.45, 0, 0.08, 2500);
+      playNote(2500, 'sawtooth', 0.3, 0.06, 0.25, 80);
+      // Düşen gümbürtü
+      playNote(200, 'triangle', 0.4, 0.1, 0.55, 35);
+      // İki kırık nota: hayal kırıklığı
+      playNote(350, 'square', 0.2, 0.25, 0.2, 150);
+      playNote(180, 'square', 0.2, 0.42, 0.25, 70);
+      // Son bas: ağır çöküş
+      playNote(45, 'sine', 0.5, 0.38, 0.5, 25);
+    }catch(e){console.warn('duelDecline ses hatası:',e);}
+  },
+  // Eski rövanş sesleri — bunları da duelChallenge/Accept/Decline'a yönlendir
+  rematchRequest(){ this.duelChallenge(); },
+  rematchAccept(){  this.duelAccept();    },
+  rematchDecline(){ this.duelDecline();   },
+  lock(){
+    if(_muted) return;
+    try{
+      const ctx = getAudioCtx();
+      // Mekanik kilitleme sesi: düşük çıt + yüksek tık
+      [[200,0,'square'],[800,.08,'sine'],[1200,.16,'sine']].forEach(([f,t,type])=>{
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = type;
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0, ctx.currentTime+t);
+        g.gain.linearRampToValueAtTime(0.18, ctx.currentTime+t+0.03);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+t+0.15);
+        o.start(ctx.currentTime+t); o.stop(ctx.currentTime+t+0.2);
+      });
+    }catch{}
+  },
+  notify(){
+    if(_muted) return;
+    try{
+      const ctx = getAudioCtx();
+      [[880,0],[1100,.12]].forEach(([f,t])=>{
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0, ctx.currentTime+t);
+        g.gain.linearRampToValueAtTime(0.1, ctx.currentTime+t+0.04);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+t+0.2);
+        o.start(ctx.currentTime+t); o.stop(ctx.currentTime+t+0.25);
+      });
+    }catch{}
+  },
+  // Mega final kazanma
+  megaWin(){
+    if(_muted) return;
+    try{
+      // Zafer fanfarı: hızlanan neşeli arpej + davul + son gümbürtü
+      // 1. Neşeli hızlanan arpej
+      [[261,0,.12],[329,.08,.14],[392,.16,.16],[523,.24,.18],[659,.32,.2],[784,.4,.22],[1047,.5,.25]].forEach(([f,t,v])=>{
+        playNote(f,'triangle',v,t,0.35);
+        playNote(f*2,'sine',v*0.4,t+0.02,0.25); // oktav üstü hafif
+      });
+      // 2. Davul ritmi: gümbür gümbür
+      [0.05,0.15,0.28,0.45].forEach(t=>{
+        playNote(80,'triangle',0.5,t,0.2,30);
+      });
+      // 3. Son zafer patlaması
+      playNote(1047,'square',0.3,0.55,0.5);
+      playNote(1319,'square',0.3,0.65,0.45);
+      playNote(1568,'square',0.35,0.75,0.6);
+      playNote(2093,'sine',0.4,0.85,0.8); // zirve nota
+      // 4. Bass finali
+      playNote(65,'sine',0.5,0.8,0.7,40);
+    }catch(e){console.warn('megaWin:',e);}
+  },
+};
+
+function toggleMute(){
+  _muted = !_muted;
+  localStorage.setItem('vm_muted', _muted?'1':'0');
+  return _muted;
+}
+</script>
+<div id="app"></div>
+<script>
+// =========================================================
+//  Vahşi Müzayede — Client v5
+//  Arkadaşlar, profil kartı, son oynanlar, rövanş, lobi
+// =========================================================
+
+const SUPABASE_URL  = 'https://fwyfsqtncggcdkjxoudr.supabase.co';
+const SUPABASE_ANON = 'sb_publishable_NYK4wR077xmh88tcOf38jg_Y05HQQ0Z';
+const DEFAULT_WS    = 'wss://vahsi-muzayede-server-production.up.railway.app';
+const XP_WIN = 100, XP_LOSE = 30, MMR_K = 32;
+const RARITY_COLORS = {common:'#93A69C',uncommon:'#8FBF4F',rare:'#4FA0E8',epic:'#B07BE8',legendary:'#E8B23D'};
+
+// ── Supabase API ──────────────────────────────────────────
+const sb = {
+  h(token){return{'Content-Type':'application/json','apikey':SUPABASE_ANON,'Authorization':`Bearer ${token}`};},
+  async post(path,body,token){const r=await fetch(SUPABASE_URL+path,{method:'POST',headers:this.h(token),body:JSON.stringify(body)});return r.json();},
+  async get(path,token){const r=await fetch(SUPABASE_URL+path,{headers:this.h(token)});return r.json();},
+  async patch(path,body,token){await fetch(SUPABASE_URL+path,{method:'PATCH',headers:{...this.h(token),'Prefer':'return=minimal'},body:JSON.stringify(body)});},
+  async insert(path,body,token){const r=await fetch(SUPABASE_URL+path,{method:'POST',headers:{...this.h(token),'Prefer':'return=representation'},body:JSON.stringify(body)});return r.json();},
+
+  async signUp(email,pass,uname){return this.post('/auth/v1/signup',{email,password:pass,options:{data:{username:uname}}},SUPABASE_ANON);},
+  async signIn(email,pass){return this.post('/auth/v1/token?grant_type=password',{email,password:pass},SUPABASE_ANON);},
+  async signOut(token){await fetch(SUPABASE_URL+'/auth/v1/logout',{method:'POST',headers:{apikey:SUPABASE_ANON,Authorization:`Bearer ${token}`}});},
+
+  async getProfile(token,uid){
+    // uid verilmezse token sahibinin id'sini kullan — asla limit=1 ile rastgele satır çekme
+    const targetId = uid || authUser?.id;
+    if(!targetId) return null;
+    const d = await this.get(`/rest/v1/profiles?id=eq.${targetId}&limit=1`,token);
+    return Array.isArray(d)?d[0]:null;
+  },
+  async searchProfiles(token,query){
+    const d=await this.get(`/rest/v1/profiles?username=ilike.*${encodeURIComponent(query)}*&select=id,username,level,mmr,wins,losses&limit=10`,token);
+    return Array.isArray(d)?d:[];
+  },
+
+  // Presence (çevrimiçi / maçta / son görülme)
+  async updatePresence(token,patch){
+    if(!authUser)return;
+    await this.patch('/rest/v1/profiles?id=eq.'+authUser.id,patch,token);
+  },
+  async getFriendsPresence(token,ids){
+    if(!ids.length)return [];
+    const d=await this.get('/rest/v1/profiles?id=in.('+ids.join(',')+')&select=id,username,level,mmr,wins,losses,last_seen,in_match,match_label',token);
+    return Array.isArray(d)?d:[];
+  },
+
+  // Arkadaşlık
+  async getFriends(token){
+    const d=await this.get('/rest/v1/friendships?or=(requester.eq.'+authUser.id+',addressee.eq.'+authUser.id+')&select=*',token);
+    return Array.isArray(d)?d:[];
+  },
+  async sendFriendRequest(token,addresseeId){
+    return this.insert('/rest/v1/friendships',{requester:authUser.id,addressee:addresseeId},token);
+  },
+  // ── Duel Invites ──────────────────────────────
+  async createDuelInvite(token, receiverId){
+    const rows = await this.insert('/rest/v1/duel_invites',{
+      sender_id: authUser.id,
+      receiver_id: receiverId,
+    }, token);
+    const inv = Array.isArray(rows)?rows[0]:null;
+    if(!inv?.id){
+      console.error('Duel invite oluşturulamadı:', rows);
+      return null;
+    }
+    // Bildirim artık SECURITY DEFINER RPC üzerinden atılıyor, çünkü
+    // client'tan doğrudan başka birinin notifications satırına yazmak
+    // RLS tarafından sessizce reddediliyordu.
+    const notifRes = await fetch(SUPABASE_URL+'/rest/v1/rpc/notify_user', {
+      method: 'POST',
+      headers: this.h(token),
+      body: JSON.stringify({
+        target:  receiverId,
+        ntype:   'duel',
+        ndata:   { inviteId: inv.id },
+        related: inv.id,
+      }),
+    });
+    if(!notifRes.ok){
+      const err = await notifRes.json().catch(()=>({}));
+      console.error('Düello bildirimi gönderilemedi:', err);
+    }
+    return inv;
+  },
+  async getDuelInvite(token, inviteId){
+    const d = await this.get('/rest/v1/duel_invites?id=eq.'+inviteId+'&limit=1', token);
+    return Array.isArray(d)?d[0]:null;
+  },
+  async updateDuelInvite(token, inviteId, patch){
+    await this.patch('/rest/v1/duel_invites?id=eq.'+inviteId, patch, token);
+  },
+  // Legacy — kullanılmıyor
+  async sendDuelInvite(token,targetId,lobbyCode){
+    return this.insert('/rest/v1/notifications',{user_id:targetId,type:'duel',from_id:authUser.id,data:JSON.stringify({lobbyCode}),read:false},token);
+  },
+  async acceptFriend(token,friendshipId){
+    await this.patch('/rest/v1/friendships?id=eq.'+friendshipId,{status:'accepted'},token);
+  },
+  async rejectFriend(token,friendshipId){
+    await fetch(SUPABASE_URL+'/rest/v1/friendships?id=eq.'+friendshipId,{method:'DELETE',headers:this.h(token)});
+  },
+
+  // Bildirimler
+  async getNotifications(token){
+    const d=await this.get('/rest/v1/notifications?user_id=eq.'+authUser.id+'&order=created_at.desc&limit=30&select=*,from:from_id(id,username,level)',token);
+    return Array.isArray(d)?d:[];
+  },
+  async markNotifRead(token,id){await this.patch('/rest/v1/notifications?id=eq.'+id,{read:true},token);},
+  async markAllNotifsRead(token){await this.patch('/rest/v1/notifications?user_id=eq.'+authUser.id+'&read=eq.false',{read:true},token);},
+  async deleteNotification(token,id){
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?id=eq.'+id,{method:'DELETE',headers:this.h(token)});
+    if(!r.ok){ const err=await r.json().catch(()=>({})); throw new Error(err.message||'Bildirim silinemedi'); }
+  },
+  async deleteAllNotifications(token){
+    const r=await fetch(SUPABASE_URL+'/rest/v1/notifications?user_id=eq.'+authUser.id,{method:'DELETE',headers:this.h(token)});
+    if(!r.ok){ const err=await r.json().catch(()=>({})); throw new Error(err.message||'Bildirimler silinemedi'); }
+  },
+
+  // Maç geçmişi
+  async getMatchHistory(token,userId,limit=10){
+    const id=userId||authUser.id;
+    const d=await this.get(`/rest/v1/match_history?or=(player1_id.eq.${id},player2_id.eq.${id})&order=played_at.desc&limit=${limit}&select=*`,token);
+    return Array.isArray(d)?d:[];
+  },
+  async saveMatch(token,match){
+    return this.insert('/rest/v1/match_history',match,token);
+  },
+
+  // İstatistik güncelle
+  async updateStats(token,userId,won,myMmr,opponentMmr){
+    const xpGain=won?XP_WIN:XP_LOSE;
+    const p=await this.getProfile(token);
+    if(!p)return null;
+    const mmrChange=calcMmrChange(won,myMmr||1000,opponentMmr||1000);
+    const newXp=p.xp+xpGain;
+    const newWins=p.wins+(won?1:0);
+    const newLosses=p.losses+(won?0:1);
+    const newLevel=Math.max(1,Math.floor(newXp/500)+1);
+    const newMmr=Math.max(0,(p.mmr||1000)+mmrChange);
+    await this.patch('/rest/v1/profiles?id=eq.'+userId,{xp:newXp,wins:newWins,losses:newLosses,level:newLevel,mmr:newMmr},token);
+    return{xpGain,mmrChange,newXp,newLevel,newMmr};
+  },
+};
+
+function calcMmrChange(won,myMmr,oppMmr){
+  const expected=1/(1+Math.pow(10,(oppMmr-myMmr)/400));
+  const actual=won?1:0;
+  return Math.round(MMR_K*(actual-expected));
+}
+
+// ── App State ─────────────────────────────────────────────
+let authToken=localStorage.getItem('vm_token')||null;
+let authUser=null, profile=null;
+let notifications=[], unreadCount=0;
+let friends=[];
+
+let ws=null, myPlayerId=null, myGameId=null;
+let wsHeartbeatTimer=null;
+// Bazı proxy/host katmanları, üzerinden GERÇEK VERİ geçmeyen WebSocket
+// bağlantılarını (ws ping/pong kontrol çerçevelerini saymadan) erkenden
+// kapatabiliyor. Lobide (arkadaş kodu / düello daveti beklenirken) istemci
+// hiçbir şey göndermediğinden bu durum davet kodunun anında geçersiz
+// görünmesine yol açıyordu. Bağlantı açıkken düzenli app-level PING
+// göndererek gerçek veri akışını garantiliyoruz.
+function startWsHeartbeat(){
+  clearInterval(wsHeartbeatTimer);
+  wsHeartbeatTimer=setInterval(()=>{
+    if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'PING'}));
+  },8000);
+}
+function stopWsHeartbeat(){clearInterval(wsHeartbeatTimer);wsHeartbeatTimer=null;}
+let prevBalance = {}; // Önceki bakiye — animasyon için
+let prevRoundResultId = null; // Önceki roundResult — tekrar animasyon önleme
+let currentState=null, connStatus='disconnected';
+let reconnectTimer=null, reconnectAttempts=0;
+const MAX_RECONNECT=8;
+
+// Lobi state
+let lobbyMode=null;       // 'create' | 'join'
+let isPrivateLobby=false; // true: arkadaşla oyna (private oda), false: rastgele eşleşme
+// Forfeit result
+let forfeitResult=null;
+// Kabul edilen davetin ID'si — yeni lobi kurulunca bu ID'ye lobby_code yazılır,
+// böylece daveti gönderen kişi kendi polling'inde bu kodu görüp odaya girer.
+let acceptedInviteId=null;
+// Aktif düello daveti (gönderen bekleme ekranı için)
+let activeDuelInvite=null;   // { id, receiverName, expiresAt }
+let duelWaitTimer=null;      // 60sn expire timer
+let duelCountdown=null;      // 3-2-1 geri sayım
+let duelCountdownVal=0;
+let lobbyCode=null;
+let lobbyPlayers={};      // pid → {name, ready}
+let opponentProfile=null; // maç sırasındaki rakip profili
+
+// Otomatik ilerleme
+let autoTimer=null, countdownTick=null;
+let countdownEnd=0, countdownTotal=0;
+let countdownAutoAt=null; // hangi nextAutoAt değeri için geri sayım gösteriliyor — aynı statüde tekrar eden fazlarda (oto dağıtım, art arda savaş) yeniden başlatmayı tetiklemek için
+let readyPlayers=new Set();
+
+// Rövanş: null | 'sent' (istek gönderildi) | 'incoming' (rakip istiyor) |
+// 'declined' (rakip reddetti) | 'opponent_left' (rakip menüye döndü/ayrıldı)
+let rematchStatus=null;
+
+// Sunucudan gelen, bir sonraki otomatik faz geçişinin GERÇEKLEŞECEĞİ mutlak
+// zaman damgası (ms). Her iki oyuncu da aynı değeri kullanır — böylece
+// "Hayvan Kapışması" gibi ekranlardaki geri sayımlar iki tarafta da
+// birebir aynı saniyeyi gösterir (host/misafir tahminine dayanmaz).
+let nextAutoAt=null;
+
+// Teklif ekranı: kullanıcının hızlı teklif butonlarıyla (+1/+3/+5/Tüm Para/+)
+// ayarladığı, henüz gönderilmemiş teklif miktarı. Hangi tur/hamleye ait
+// olduğunu izlemek için bir anahtarla birlikte tutulur — tur değişince
+// (yeni min teklif) sıfırdan hesaplanır.
+let bidInputValue=null;
+let bidInputKey=null;
+
+// Final ekranında "Maç Özeti" bölümünün açık/kapalı durumu.
+let showMatchSummary=false;
+
+// Presence (çevrimiçi / maçta / son görülme)
+const PRESENCE_INTERVAL_MS = 20_000;  // her 20sn'de bir last_seen güncelle
+const ONLINE_THRESHOLD_MS  = 45_000;  // last_seen bu süreden eskiyse çevrimdışı say
+let presenceTimer=null;
+let lastSyncedMatchLabel=undefined;   // undefined = bu oturumda henüz senkronlanmadı
+
+// Ekran yığını
+let screen='loading';
+let subScreen=null;       // 'friends' | 'notifications' | 'lobby' | 'profile-card'
+let profileCardData=null; // açık profil kartı verisi
+
+let errorMsg=null, successMsg=null;
+let authMode='login';
+
+// ── Render ────────────────────────────────────────────────
+const app=document.getElementById('app');
+
+function render(){
+  syncMatchPresence();
+  app.innerHTML='';
+  if(errorMsg)  app.appendChild(el(`<div class="toast toast-err">${esc(errorMsg)}</div>`));
+  if(successMsg)app.appendChild(el(`<div class="toast toast-ok">${esc(successMsg)}</div>`));
+
+  if(screen==='loading'){app.appendChild(el(`<div class="card" style="text-align:center;padding:40px">Yükleniyor…</div>`));return;}
+  if(screen==='auth'){renderAuth();return;}
+
+  // Subscreen modalları
+  if(subScreen==='profile-card'&&profileCardData){renderProfileCardModal();return;}
+  if(subScreen==='friends'){renderFriends();return;}
+  // notifications artık panel olarak gösteriliyor, subScreen değil
+  if(subScreen==='lobby'){renderLobby();return;}
+  if(subScreen==='duel-wait'){renderDuelWait();return;}
+
+  if(screen==='menu'){renderMenu();return;}
+  if(screen==='game'){renderGame();return;}
+}
+
+// ── Auth ──────────────────────────────────────────────────
+function renderAuth(){
+  const isReg=authMode==='register';
+  const wrap=el(`
+    <div>
+      <div style="text-align:center;margin-bottom:24px">
+        <div style="font-size:44px;margin-bottom:8px">🦁</div>
+        <h1 style="font-size:24px;font-weight:900;letter-spacing:.5px">VAHŞİ MÜZAYEDE</h1>
+        <p style="font-size:13px;color:#6b7080;margin-top:4px">Teklif ver. Ordunu kur. Savaşı kazan.</p>
+      </div>
+      <div class="card">
+        <div class="card-title" style="font-size:17px;font-weight:700;text-align:center;margin-bottom:16px">${isReg?'Hesap Oluştur':'Giriş Yap'}</div>
+        ${isReg?`<label>Kullanıcı adı</label><input id="in-uname" placeholder="lokman42" maxlength="20">`:''}
+        <label>E-posta</label><input id="in-email" type="email" placeholder="sen@example.com">
+        <label>Şifre</label><input id="in-pass" type="password" placeholder="••••••••">
+        <button class="btn-primary" id="btn-submit">${isReg?'Kayıt Ol':'Giriş Yap'}</button>
+        <div class="hint-link" id="toggle">${isReg?'Hesabın var mı? Giriş yap':'Hesabın yok mu? Kayıt ol'}</div>
+      </div>
+    </div>
+  `);
+  app.appendChild(wrap);
+  wrap.querySelector('#toggle').addEventListener('click',()=>{authMode=isReg?'login':'register';render();});
+  wrap.querySelector('#btn-submit').addEventListener('click',async()=>{
+    const btn=wrap.querySelector('#btn-submit');
+    const email=wrap.querySelector('#in-email').value.trim();
+    const pass=wrap.querySelector('#in-pass').value;
+    const uname=isReg?wrap.querySelector('#in-uname')?.value.trim():null;
+    if(!email||!pass){showErr('E-posta ve şifre zorunlu.');return;}
+    if(isReg&&!uname){showErr('Kullanıcı adı zorunlu.');return;}
+    if(pass.length<6){showErr('Şifre en az 6 karakter.');return;}
+    btn.disabled=true;btn.textContent='…';
+    try{
+      if(isReg){
+        // KAYIT: sadece hesap oluştur, giriş ekranına yönlendir
+        const data=await sb.signUp(email,pass,uname);
+        if(data?.error){showErr(friendlyErr(data.error.message));return;}
+        showToast('Hesap oluşturuldu! Şimdi giriş yapabilirsin.',true);
+        authMode='login';
+        // E-postayı giriş ekranına taşı
+        setTimeout(()=>{
+          const emailEl=document.querySelector('#in-email');
+          if(emailEl)emailEl.value=email;
+        },50);
+        render();
+      } else {
+        // GİRİŞ
+        const data=await sb.signIn(email,pass);
+        if(data?.error){showErr(friendlyErr(data.error.message));return;}
+        authToken=data.access_token;
+        localStorage.setItem('vm_token',authToken);
+        try{
+          const parts=authToken.split('.');
+          const payload=JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
+          authUser={id:payload.sub,email:payload.email};
+        }catch{}
+        await loadProfile();
+      }
+    }finally{btn.disabled=false;}
+  });
+  wrap.querySelectorAll('input').forEach(i=>i.addEventListener('keydown',e=>{if(e.key==='Enter')wrap.querySelector('#btn-submit').click();}));
+}
+
+// ── Menü ──────────────────────────────────────────────────
+function renderMenu(){
+  const xpPct=Math.round((profile.xp%500)/500*100);
+  const winRate=(profile.wins+profile.losses)>0?Math.round(profile.wins*100/(profile.wins+profile.losses)):0;
+
+  app.appendChild(el(`
+    <div class="menu-header">
+      <div class="user-row">
+        <div class="user-info">
+          <div class="avatar" id="btn-my-profile">👤${unreadCount>0?`<span class="notif-dot"></span>`:''}</div>
+          <div>
+            <div class="username">${esc(profile.username)}</div>
+            <div class="user-level">LEVEL ${profile.level} · MMR ${profile.mmr||1000}</div>
+          </div>
+        </div>
+        <div class="header-actions">
+          <div class="icon-btn" id="btn-mute-hdr" title="${_muted?'Sesi Aç':'Sesi Kapat'}">${_muted?'🔇':'🔊'}</div>
+          <div class="icon-btn" id="btn-notif">🔔${unreadCount>0?`<span class="icon-badge">${unreadCount}</span>`:''}</div>
+          <div class="icon-btn" id="btn-logout">⚙️</div>
+        </div>
+      </div>
+      <div class="xp-row"><span>XP ${profile.xp}</span><span>${profile.xp%500}/500</span></div>
+      <div class="xp-bar"><div class="xp-fill" style="width:${xpPct}%"></div></div>
+      <div class="animals-row">🐘 🦁 🐆</div>
+      <div class="game-title"><h1>VAHŞİ MÜZAYEDE</h1><p>Teklif ver. Ordunu kur. Savaşı kazan.</p></div>
+    </div>
+  `));
+
+  // Tablette iki büyük buton yan yana, mobilde alt alta
+  const primaryRow = el(`<div class="menu-primary-row"></div>`);
+  primaryRow.appendChild(menuBtnEl('⚔️','RASTGELE OYNA','Rastgele rakiple eşleş','primary',()=>{isPrivateLobby=false;startGame(null);}));
+  primaryRow.appendChild(menuBtnEl('👥','ARKADAŞINLA OYNA','Oda oluştur veya koda katıl','',()=>{subScreen='lobby';lobbyMode='menu';render();}));
+  app.appendChild(primaryRow);
+
+  const grid=el(`<div class="grid-2"></div>`);
+  grid.appendChild(gridBtnEl('🏆','LİG','Sıralama',()=>showToast('Lig yakında!',true)));
+  grid.appendChild(gridBtnEl('🐘','KOLEKSİYON','Geçmiş',()=>showToast('Yakında!',true)));
+  app.appendChild(grid);
+
+  const stats=el(`<div class="stats-row"></div>`);
+  stats.appendChild(statCardEl(profile.wins,'GALİBİYET'));
+  stats.appendChild(statCardEl(profile.losses,'MAĞLUBET'));
+  stats.appendChild(statCardEl(winRate+'%','KAZANMA'));
+  app.appendChild(stats);
+
+  app.appendChild(el(`
+    <div class="tab-bar">
+      <button class="tab-item active"><span class="tab-icon">🏠</span>OYNA</button>
+      <button class="tab-item" id="tab-friends"><span class="tab-icon">👥</span>ARKADAŞLAR${friends.filter(f=>f.status==='pending'&&f.addressee===authUser.id).length>0?`<span class="tab-badge">${friends.filter(f=>f.status==='pending'&&f.addressee===authUser.id).length}</span>`:''}</button>
+      <button class="tab-item" id="tab-profile"><span class="tab-icon">👤</span>PROFİL</button>
+    </div>
+  `));
+
+  app.querySelector('#btn-notif')?.addEventListener('click',()=>toggleNotifPanel());
+  app.querySelector('#btn-mute-hdr')?.addEventListener('click',()=>{
+    const m=toggleMute();
+    const btn=app.querySelector('#btn-mute-hdr');
+    if(btn){btn.textContent=m?'🔇':'🔊'; btn.title=m?'Sesi Aç':'Sesi Kapat';}
+  });
+  app.querySelector('#btn-logout')?.addEventListener('click',()=>{if(!confirm('Çıkış yap?'))return;sb.signOut(authToken);stopPresenceHeartbeat();authToken=null;profile=null;localStorage.removeItem('vm_token');disconnectWs();screen='auth';render();});
+  app.querySelector('#tab-friends')?.addEventListener('click',()=>{subScreen='friends';render();});
+  app.querySelector('#tab-profile')?.addEventListener('click',()=>{openProfileCard(profile,true);});
+  app.querySelector('#btn-my-profile')?.addEventListener('click',()=>{openProfileCard(profile,true);});
+}
+
+// ── Arkadaşlar Ekranı ─────────────────────────────────────
+async function renderFriends(){
+  const wrap=el(`<div></div>`);
+
+  // Header
+  const hdr=el(`
+    <div class="screen-header">
+      <div class="back-btn" id="back">‹</div>
+      <div class="screen-title">👥 Arkadaşlar</div>
+    </div>
+  `);
+  hdr.querySelector('#back').addEventListener('click',()=>{subScreen=null;render();});
+  wrap.appendChild(hdr);
+
+  // Arama
+  const searchWrap=el(`<div class="search-box"><input id="q" placeholder="🔍 Kullanıcı ara…"><button class="btn-primary btn-sm" id="btn-search" style="white-space:nowrap">Ara</button></div>`);
+  wrap.appendChild(searchWrap);
+
+  const resultsEl=el(`<div id="search-results"></div>`);
+  wrap.appendChild(resultsEl);
+
+  searchWrap.querySelector('#btn-search').addEventListener('click',async()=>{
+    const q=searchWrap.querySelector('#q').value.trim();
+    if(q.length<2){showErr('En az 2 karakter gir.');return;}
+    const results=await sb.searchProfiles(authToken,q);
+    resultsEl.innerHTML='';
+    if(!results.length){resultsEl.appendChild(el(`<div style="font-size:13px;color:#6b7080;margin-bottom:12px">Kullanıcı bulunamadı.</div>`));return;}
+    results.forEach(p=>{
+      if(p.id===authUser.id)return;
+      const existing=friends.find(f=>(f.requester===p.id||f.addressee===p.id));
+      const row=el(`
+        <div class="friend-row">
+          <div class="friend-avatar">👤</div>
+          <div class="friend-info">
+            <div class="friend-name">${esc(p.username)}</div>
+            <div class="friend-meta">Level ${p.level} · MMR ${p.mmr||1000}</div>
+          </div>
+          <div class="friend-actions">
+            ${existing?`<span style="font-size:12px;color:#6b7080">${existing.status==='accepted'?'Arkadaş':'İstek Gönderildi'}</span>`
+              :`<button class="btn-primary btn-sm" data-uid="${p.id}">+ Ekle</button>`}
+          </div>
+        </div>
+      `);
+      row.querySelector('[data-uid]')?.addEventListener('click',async(e)=>{
+        const uid=e.target.dataset.uid;
+        await sb.sendFriendRequest(authToken,uid);
+        friends=await sb.getFriends(authToken);
+        showToast('Arkadaşlık isteği gönderildi!',true);
+        resultsEl.innerHTML='';
+      });
+      resultsEl.appendChild(row);
+    });
+  });
+  searchWrap.querySelector('#q').addEventListener('keydown',e=>{if(e.key==='Enter')searchWrap.querySelector('#btn-search').click();});
+
+  // Bekleyen istekler
+  const pending=friends.filter(f=>f.status==='pending'&&f.addressee===authUser.id);
+  if(pending.length){
+    wrap.appendChild(el(`<div class="section-label">🔔 Bekleyen İstekler (${pending.length})</div>`));
+    const pendingCard=el(`<div class="card"></div>`);
+    for(const f of pending){
+      const p=await sb.getProfile(authToken,f.requester);
+      const row=el(`
+        <div class="friend-row">
+          <div class="friend-avatar">👤</div>
+          <div class="friend-info">
+            <div class="friend-name">${esc(p?.username||'?')}</div>
+            <div class="friend-meta">Level ${p?.level||1}</div>
+          </div>
+          <div class="friend-actions">
+            <button class="btn-success btn-sm" id="acc-${f.id}">✓</button>
+            <button class="btn-danger btn-sm" id="rej-${f.id}">✗</button>
+          </div>
+        </div>
+      `);
+      row.querySelector(`#acc-${f.id}`)?.addEventListener('click',async()=>{await sb.acceptFriend(authToken,f.id);friends=await sb.getFriends(authToken);showToast('Arkadaş eklendi!',true);subScreen='friends';renderFriends();});
+      row.querySelector(`#rej-${f.id}`)?.addEventListener('click',async()=>{await sb.rejectFriend(authToken,f.id);friends=await sb.getFriends(authToken);subScreen='friends';renderFriends();});
+      pendingCard.appendChild(row);
+    }
+    wrap.appendChild(pendingCard);
+  }
+
+  // Kabul edilmiş arkadaşlar — çevrimiçi / maçta / çevrimdışı ayrımıyla
+  const accepted=friends.filter(f=>f.status==='accepted');
+  const friendIds=accepted.map(f=>f.requester===authUser.id?f.addressee:f.requester);
+
+  if(!friendIds.length){
+    wrap.appendChild(el(`<div class="section-label">ARKADAŞLAR (0)</div>`));
+    wrap.appendChild(el(`<div style="font-size:13px;color:#6b7080;text-align:center;padding:16px 0">Henüz arkadaşın yok. Yukarıdan ara!</div>`));
+    app.appendChild(wrap);
+    return;
+  }
+
+  let presence=[];
+  try{ presence=await sb.getFriendsPresence(authToken,friendIds); }catch(e){ presence=[]; }
+  const presenceById=new Map(presence.map(p=>[p.id,p]));
+  const now=Date.now();
+
+  const enriched=friendIds.map(fid=>{
+    const p=presenceById.get(fid);
+    if(!p)return null;
+    const lastSeenMs=p.last_seen?new Date(p.last_seen).getTime():0;
+    const isFresh=lastSeenMs>0&&(now-lastSeenMs)<ONLINE_THRESHOLD_MS;
+    const status=p.in_match&&isFresh?'inmatch':isFresh?'online':'offline';
+    return {...p,status,lastSeenMs};
+  }).filter(Boolean);
+
+  const online=enriched.filter(p=>p.status==='online'||p.status==='inmatch');
+  const offline=enriched.filter(p=>p.status==='offline').sort((a,b)=>b.lastSeenMs-a.lastSeenMs);
+
+  wrap.appendChild(el(`<div class="section-label">🟢 ${online.length} ÇEVRİMİÇİ</div>`));
+
+  if(!online.length){
+    wrap.appendChild(el(`<div style="font-size:13px;color:#6b7080;padding:4px 2px 16px">Şu an çevrimiçi arkadaşın yok.</div>`));
+  } else {
+    const onlineCard=el(`<div class="card"></div>`);
+    online.forEach(p=>{
+      const inMatch=p.status==='inmatch';
+      const dotClass=inMatch?'sd-ingame':'sd-online';
+      const meta=inMatch
+        ? `Maçta${p.match_label?` · ${esc(p.match_label)}`:''}`
+        : `Level ${p.level} · MMR ${p.mmr||1000}`;
+      const btnLabel=inMatch?'İZLE':'MEYDAN OKU';
+      const row=el(`
+        <div class="friend-row" style="cursor:pointer" id="fr-${p.id}">
+          <span class="status-dot ${dotClass}" style="width:10px;height:10px;flex-shrink:0"></span>
+          <div class="friend-info">
+            <div class="friend-name">${esc(p.username)}</div>
+            <div class="friend-meta">${meta}</div>
+          </div>
+          <div class="friend-actions">
+            <button class="btn-link-bracket${inMatch?' watch':''}" id="act-${p.id}">[ ${btnLabel} ]</button>
+          </div>
+        </div>
+      `);
+      row.querySelector(`#fr-${p.id}`)?.addEventListener('click',(e)=>{if(e.target.tagName==='BUTTON')return;openProfileCard(p);});
+      row.querySelector(`#act-${p.id}`)?.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        if(inMatch) showToast('İzleme özelliği yakında! 👀',true);
+        else showDuelConfirm(p.id,p.username);
+      });
+      onlineCard.appendChild(row);
+    });
+    wrap.appendChild(onlineCard);
+  }
+
+  wrap.appendChild(el(`<div class="section-label" style="margin-top:16px">DİĞER ARKADAŞLAR (${offline.length})</div>`));
+  if(offline.length){
+    const offCard=el(`<div class="card"></div>`);
+    offline.forEach(p=>{
+      const row=el(`
+        <div class="friend-row" style="cursor:pointer;padding:8px 0" id="ofl-${p.id}">
+          <div class="friend-info">
+            <div class="friend-name" style="font-size:13px">${esc(p.username)}</div>
+          </div>
+          <div style="font-size:12px;color:#6b7080;white-space:nowrap">${p.lastSeenMs?relativeTime(new Date(p.lastSeenMs).toISOString()):'—'}</div>
+        </div>
+      `);
+      row.addEventListener('click',()=>openProfileCard(p));
+      offCard.appendChild(row);
+    });
+    wrap.appendChild(offCard);
+  }
+
+  app.appendChild(wrap);
+}
+
+// ── Düello onay penceresi ────────────────────────────────
+function showDuelConfirm(targetId, targetName){
+  // Varsa eski overlay kaldır
+  document.querySelector('.confirm-overlay')?.remove();
+
+  const overlay=document.createElement('div');
+  overlay.className='confirm-overlay';
+  overlay.innerHTML=`
+    <div class="confirm-box">
+      <div style="font-size:36px;margin-bottom:8px">⚔️</div>
+      <div class="confirm-title">${esc(targetName)}'e Meydan Oku</div>
+      <div class="confirm-sub">${esc(targetName)}'i Vahşi Müzayede düellosuna davet etmek istediğine emin misin?</div>
+      <div class="confirm-btns">
+        <button class="btn-secondary" id="c-cancel" style="flex:1">Vazgeç</button>
+        <button class="btn-primary"   id="c-send"   style="flex:1">⚔️ Davet Gönder</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#c-cancel').addEventListener('click',()=>overlay.remove());
+  overlay.querySelector('#c-send').addEventListener('click',async()=>{
+    overlay.remove();
+    await sendDuelAndWait(targetId, targetName);
+  });
+}
+
+// Davet gönder + bekleme ekranı göster
+async function sendDuelAndWait(targetId, targetName){
+  // Güvenlik: kendine davet gönderilemez
+  if(targetId===authUser.id){
+    showToast('Kendine düello daveti gönderemezsin.',false);
+    return;
+  }
+  // Önceki aktif daveti iptal et
+  if(activeDuelInvite){
+    await sb.updateDuelInvite(authToken, activeDuelInvite.id, {status:'cancelled'});
+    clearTimeout(duelWaitTimer);
+  }
+
+  SFX.duelChallenge(); // Davet gönderildiği anda agresif ses
+  const invite = await sb.createDuelInvite(authToken, targetId);
+  if(!invite){showToast('Davet gönderilemedi.',false);return;}
+
+  activeDuelInvite = {
+    id: invite.id,
+    receiverName: targetName,
+    expiresAt: new Date(invite.expires_at).getTime(),
+  };
+
+  // 60sn expire timer
+  clearTimeout(duelWaitTimer);
+  duelWaitTimer = setTimeout(async()=>{
+    if(activeDuelInvite?.id===invite.id){
+      activeDuelInvite=null;
+      showToast('Düello davetinin süresi doldu.',false);
+      subScreen=null; render();
+    }
+  }, 60000);
+
+  // Bekleme ekranını göster
+  subScreen='duel-wait';
+  render();
+}
+
+// Bekleme ekranı render'ı
+function renderDuelWait(){
+  if(!activeDuelInvite){subScreen=null;render();return;}
+  const wrap=el(`<div></div>`);
+  const hdr=el(`<div class="screen-header"><div class="back-btn" id="back">‹</div><div class="screen-title">Düello Daveti</div></div>`);
+  hdr.querySelector('#back').addEventListener('click',()=>{subScreen=null;render();});
+  wrap.appendChild(hdr);
+
+  const secLeft=Math.max(0,Math.ceil((activeDuelInvite.expiresAt-Date.now())/1000));
+  const pct=Math.round((secLeft/60)*100);
+
+  const card=el(`
+    <div class="card duel-wait-screen">
+      <div class="duel-wait-avatar">⚔️</div>
+      <div class="duel-wait-title">Davet Gönderildi!</div>
+      <div class="duel-wait-sub">${esc(activeDuelInvite.receiverName)}'e meydan okudun.<br>Onay bekleniyor…</div>
+      <div class="duel-wait-bar"><div class="duel-wait-fill" id="dw-fill" style="width:${pct}%"></div></div>
+      <div class="duel-wait-timer" id="dw-timer">${secLeft} saniye</div>
+    </div>
+  `);
+  wrap.appendChild(card);
+
+  const cancelBtn=el(`<button class="btn-danger" id="btn-cancel-duel">❌ Daveti İptal Et</button>`);
+  cancelBtn.addEventListener('click',async()=>{
+    if(activeDuelInvite){
+      await sb.updateDuelInvite(authToken,activeDuelInvite.id,{status:'cancelled'});
+      activeDuelInvite=null;
+      clearTimeout(duelWaitTimer);
+    }
+    subScreen=null; render();
+  });
+  wrap.appendChild(cancelBtn);
+  app.appendChild(wrap);
+
+  // Countdown tick
+  clearInterval(duelCountdown);
+  duelCountdown=setInterval(()=>{
+    const s=Math.max(0,Math.ceil((activeDuelInvite?.expiresAt-Date.now())/1000));
+    const f=document.querySelector('#dw-fill');
+    const t=document.querySelector('#dw-timer');
+    if(f)f.style.width=Math.round((s/60)*100)+'%';
+    if(t)t.textContent=s+' saniye';
+    if(s<=0){clearInterval(duelCountdown);}
+  },1000);
+}
+
+// Bildirimler ───────────────────────────────────────────
+// ── Bildirim Panel (dropdown) ────────────────────────────
+let notifPanelOpen = false;
+let cachedNotifs   = [];
+let seenNotifIds   = new Set();   // Toast spam'i önlemek için: hangi bildirimleri zaten gösterdik
+let dismissedNotifIds = new Set(); // Silinmiş (veya silinmekte olan) bildirimler — poll'da geri gelmesinler diye
+
+function toggleNotifPanel(){
+  if(notifPanelOpen){ closeNotifPanel(); return; }
+  openNotifPanel();
+}
+
+// Bildirim rozetini tam render() tetiklemeden, DOM üzerinde canlı günceller.
+function updateNotifBadgeDom(){
+  const avatar=document.querySelector('#btn-my-profile');
+  if(avatar){
+    avatar.querySelector('.notif-dot')?.remove();
+    if(unreadCount>0) avatar.insertAdjacentHTML('beforeend','<span class="notif-dot"></span>');
+  }
+  const bell=document.querySelector('#btn-notif');
+  if(bell){
+    bell.querySelector('.icon-badge')?.remove();
+    if(unreadCount>0) bell.insertAdjacentHTML('beforeend',`<span class="icon-badge">${unreadCount}</span>`);
+  }
+}
+
+// ── Presence: çevrimiçi durumu + maç bilgisi ───────────────
+function startPresenceHeartbeat(){
+  stopPresenceHeartbeat();
+  sendHeartbeat();
+  presenceTimer=setInterval(sendHeartbeat,PRESENCE_INTERVAL_MS);
+  document.addEventListener('visibilitychange',onPresenceVisibilityChange);
+}
+function stopPresenceHeartbeat(){
+  if(presenceTimer){clearInterval(presenceTimer);presenceTimer=null;}
+  document.removeEventListener('visibilitychange',onPresenceVisibilityChange);
+}
+function onPresenceVisibilityChange(){
+  if(document.visibilityState==='visible')sendHeartbeat();
+}
+async function sendHeartbeat(){
+  if(!authToken||!authUser)return;
+  try{ await sb.updatePresence(authToken,{last_seen:new Date().toISOString()}); }
+  catch(e){ /* sessiz geç — bir sonraki heartbeat'te tekrar denenecek */ }
+}
+
+// Aktif maçın durumuna göre "Tur 6/10" gibi kısa bir etiket üretir.
+// null dönerse maçta değil demektir.
+function computeMatchLabel(state){
+  if(!state)return null;
+  const total=state.totalRounds||10;
+  switch(state.status){
+    case 'auction':
+    case 'free_choice':
+    case 'round_result': return `Tur ${Math.min(state.round+1,total)}/${total}`;
+    case 'collection':   return 'Koleksiyon';
+    case 'battle':       return 'Savaşta';
+    default:              return null; // waiting / final → maçta sayılmaz
+  }
+}
+
+// Değer gerçekten değiştiyse sunucuya yazar — her render'da çağrılması güvenli.
+function syncMatchPresence(){
+  if(!authToken||!authUser)return;
+  const label=screen==='game'?computeMatchLabel(currentState):null;
+  if(label===lastSyncedMatchLabel)return;
+  lastSyncedMatchLabel=label;
+  sb.updatePresence(authToken,{in_match:!!label,match_label:label}).catch(()=>{});
+}
+
+// Bildirimleri periyodik çeker; paneli açık değilse bile rozeti
+// otomatik günceller ve yeni gelen bildirim için toast gösterir.
+async function pollNotifications(){
+  if(!authToken||!authUser)return;
+  try{
+    const raw=await sb.getNotifications(authToken);
+    // Yerelde silinmiş/silinmekte olan bildirimleri asla geri getirme —
+    // sunucudaki DELETE gecikse ya da sessizce başarısız olsa bile
+    // bildirim panelde "geri gelmiş" gibi görünmesin.
+    const notifs=raw.filter(n=>!dismissedNotifIds.has(n.id));
+    const freshOnes=notifs.filter(n=>!n.read&&!seenNotifIds.has(n.id));
+    if(freshOnes.length>0) SFX.notify(); // Yeni bildirim sesi
+    cachedNotifs=notifs;
+    unreadCount=notifs.filter(n=>!n.read).length;
+    seenNotifIds=new Set(notifs.map(n=>n.id));
+
+    updateNotifBadgeDom();
+    if(notifPanelOpen)renderNotifPanel();
+
+    for(const n of freshOnes){
+      if(n.type==='duel'){
+        showToast(`🗡️ ${esc(n.from?.username||'Biri')} seni düelloya davet etti!`,true);
+      } else if(n.type==='friend_request'){
+        showToast(`👥 ${esc(n.from?.username||'Biri')} arkadaşlık isteği gönderdi`,true);
+      } else if(n.type==='friend_accepted'){
+        showToast(`✅ ${esc(n.from?.username||'Biri')} arkadaşlığını kabul etti`,true);
+      } else if(n.type==='duel_declined'){
+        showToast('Düello daveti reddedildi.',false);
+      }
+    }
+  }catch(e){ /* sessiz geç — bir sonraki pollde tekrar denenecek */ }
+}
+
+function closeNotifPanel(){
+  notifPanelOpen=false;
+  document.querySelector('.notif-panel-overlay')?.remove();
+  document.querySelector('.notif-panel')?.remove();
+}
+
+// Kabul/reddet sonrası: bildirimi hem sunucudan hem panelden kaldırır.
+// ÖNEMLİ: Önce sunucudan silme ONAYI alınır, ANCAK ondan sonra UI'dan
+// kaldırılır. Eskiden UI önce gizleyip arka planda siliyordu — sunucu
+// silme isteği (ör. bir RLS izin hatasıyla) sessizce başarısız
+// olduğunda bildirim DB'de kalmaya devam ediyor ama istemci "silinmiş"
+// sanıyordu; bu bilgi sadece bellek-içi dismissedNotifIds'te
+// tutulduğundan sayfa yenilenince/yeniden giriş yapılınca sıfırlanıyor
+// ve bildirim DB'den (gerçekte hiç silinmemiş haliyle) geri geliyordu.
+async function removeNotifFromPanel(notifId){
+  try{
+    await sb.deleteNotification(authToken,notifId);
+  }catch(e){
+    console.error('Bildirim silinemedi:', e.message);
+    showToast('Bildirim silinemedi, tekrar deneyin.',false);
+    return; // Sunucuda silinmediyse UI'dan da kaldırma — aksi halde yanıltıcı olur
+  }
+  dismissedNotifIds.add(notifId);   // sadece bu oturumda tekrar poll edilmesin diye
+  cachedNotifs=cachedNotifs.filter(n=>n.id!==notifId);
+  seenNotifIds.delete(notifId);
+  unreadCount=cachedNotifs.filter(n=>!n.read).length;
+  updateNotifBadgeDom();
+  if(notifPanelOpen)renderNotifPanel();
+}
+
+// Tüm bildirimleri kalıcı olarak siler — hem panelden hem sunucudan.
+// Aynı ilke: önce sunucu onayı, sonra UI güncellemesi.
+async function clearAllNotifications(){
+  try{
+    await sb.deleteAllNotifications(authToken);
+  }catch(e){
+    console.error('Tüm bildirimler silinemedi:', e.message);
+    showToast('Bildirimler silinirken bir sorun oluştu.',false);
+    return;
+  }
+  const ids=cachedNotifs.map(n=>n.id);
+  ids.forEach(id=>dismissedNotifIds.add(id));
+  cachedNotifs=[];
+  seenNotifIds=new Set();
+  unreadCount=0;
+  updateNotifBadgeDom();
+  if(notifPanelOpen)renderNotifPanel();
+}
+
+async function openNotifPanel(){
+  notifPanelOpen=true;
+  // Arka planda çek
+  try{
+    const raw=await sb.getNotifications(authToken);
+    cachedNotifs=raw.filter(n=>!dismissedNotifIds.has(n.id));
+    // Okunmayanları okundu yap
+    const unread=cachedNotifs.filter(n=>!n.read);
+    if(unread.length){
+      await sb.markAllNotifsRead(authToken);
+      unreadCount=0;
+      // Rozeti güncelle
+      const badge=document.querySelector('.icon-badge');
+      if(badge)badge.remove();
+      const dot=document.querySelector('.notif-dot');
+      if(dot)dot.remove();
+    }
+  }catch(e){ cachedNotifs=[]; }
+  renderNotifPanel();
+}
+
+function renderNotifPanel(){
+  // Var olanı kaldır
+  closeNotifPanel();
+  notifPanelOpen=true;
+
+  // Tıklama arkası kapat
+  const overlay=document.createElement('div');
+  overlay.className='notif-panel-overlay';
+  overlay.addEventListener('click', closeNotifPanel);
+
+  const panel=document.createElement('div');
+  panel.className='notif-panel';
+
+  // Başlık
+  const head=document.createElement('div');
+  head.className='notif-panel-head';
+  head.innerHTML=`
+    <div class="notif-panel-title">🔔 Bildirimler${unreadCount>0?` <span style="background:#e85f5f;color:#fff;font-size:10px;border-radius:6px;padding:1px 5px">${unreadCount}</span>`:''}
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      ${cachedNotifs.length?'<div class="np-clear-all" id="np-clear-all" title="Tüm bildirimleri sil" style="font-size:12px;color:#8b93a8;cursor:pointer;white-space:nowrap">Tümünü Sil</div>':''}
+      <div class="notif-panel-close" id="np-close">✕</div>
+    </div>
+  `;
+  head.querySelector('#np-close').addEventListener('click',closeNotifPanel);
+  head.querySelector('#np-clear-all')?.addEventListener('click',async(e)=>{
+    e.stopPropagation();
+    await clearAllNotifications();
+  });
+  panel.appendChild(head);
+
+  // Gövde
+  const body=document.createElement('div');
+  body.className='notif-panel-body';
+
+  if(!cachedNotifs.length){
+    body.innerHTML=`<div class="notif-panel-empty">Bildirim yok</div>`;
+  } else {
+    cachedNotifs.forEach(n=>{
+      const row=document.createElement('div');
+      row.className='np-row'+(n.read?'':' unread');
+
+      let icon='🔔', text='';
+      if(n.type==='friend_request'){
+        icon='👥';
+        text=`<strong>${esc(n.from?.username||'?')}</strong> sana arkadaşlık isteği gönderdi`;
+      } else if(n.type==='friend_accepted'){
+        icon='✅';
+        text=`<strong>${esc(n.from?.username||'?')}</strong> arkadaşlık isteğini kabul etti`;
+      } else if(n.type==='rematch'){
+        icon='⚔️';
+        text=`<strong>${esc(n.from?.username||'?')}</strong> sana meydan okudu`;
+      } else if(n.type==='duel'){
+        icon='🗡️';
+        text=`<strong>${esc(n.from?.username||'?')}</strong> seni düelloya davet etti`;
+      }
+
+      // inviteId: JSON parse et (data string veya obje olabilir)
+      let parsedData={};
+      try{ parsedData=typeof n.data==='string'?JSON.parse(n.data):n.data||{}; }catch{}
+      const inviteId=n.related_id||parsedData.inviteId||null;
+
+      const acts = n.type==='friend_request' ? `
+        <div class="np-acts">
+          <button class="btn-success btn-sm" data-fid="${n.id}" data-rid="${n.from_id}" data-action="accept">✓ Kabul Et</button>
+          <button class="btn-danger btn-sm"  data-fid="${n.id}" data-action="reject">✗ Reddet</button>
+        </div>` : n.type==='duel'&&inviteId ? `
+        <div class="np-acts">
+          <button class="btn-success btn-sm" data-invite="${inviteId}" data-action="duel-accept">⚔️ Kabul Et</button>
+          <button class="btn-danger btn-sm"  data-invite="${inviteId}" data-action="duel-reject">Reddet</button>
+        </div>` : n.type==='duel_declined' ? `
+        <div style="font-size:12px;color:#e85f5f;margin-top:4px">Düello reddedildi.</div>` : '';
+
+      row.innerHTML=`
+        <div class="np-icon">${icon}</div>
+        <div class="np-body">
+          <div class="np-text">${text}</div>
+          <div class="np-time">${relativeTime(n.created_at)}</div>
+          ${acts}
+        </div>
+        <div class="np-dismiss" id="dismiss-${n.id}" title="Bildirimi sil">✕</div>
+      `;
+
+      row.querySelector(`#dismiss-${n.id}`)?.addEventListener('click',async(e)=>{
+        e.stopPropagation();
+        await removeNotifFromPanel(n.id);
+      });
+
+      // Kabul/reddet eventleri
+      row.querySelector('[data-action="accept"]')?.addEventListener('click',async(e)=>{
+        const requesterId=e.target.dataset.rid;
+        const fr=friends.find(f=>f.requester===requesterId&&f.addressee===authUser.id);
+        if(fr){ await sb.acceptFriend(authToken,fr.id); friends=await sb.getFriends(authToken); }
+        showToast('Arkadaş eklendi!',true);
+        await removeNotifFromPanel(n.id);
+      });
+      row.querySelector('[data-action="reject"]')?.addEventListener('click',async(e)=>{
+        const requesterId=e.target.dataset.rid;
+        const fr=friends.find(f=>f.requester===requesterId&&f.addressee===authUser.id);
+        if(fr){ await sb.rejectFriend(authToken,fr.id); friends=await sb.getFriends(authToken); }
+        await removeNotifFromPanel(n.id);
+      });
+      // Düello kabul/reddet
+      row.querySelector('[data-action="duel-accept"]')?.addEventListener('click',async(e)=>{
+        const inviteId=e.target.dataset.invite;
+        SFX.duelAccept(); // Kabul anında ses
+        closeNotifPanel();
+        await removeNotifFromPanel(n.id);
+        await acceptDuelInvite(inviteId);
+      });
+      row.querySelector('[data-action="duel-reject"]')?.addEventListener('click',async(e)=>{
+        const inviteId=e.target.dataset.invite;
+        SFX.duelDecline(); // Red anında ses
+        await sb.updateDuelInvite(authToken, inviteId, {status:'declined'});
+        // Gönderene bildirim — RPC üzerinden (bkz. notify_user, RLS by-pass)
+        const inv=await sb.getDuelInvite(authToken, inviteId);
+        if(inv){
+          const r=await fetch(SUPABASE_URL+'/rest/v1/rpc/notify_user',{
+            method:'POST', headers: sb.h(authToken),
+            body: JSON.stringify({ target: inv.sender_id, ntype: 'duel_declined', ndata: {}, related: inv.id }),
+          });
+          if(!r.ok) console.error('Red bildirimi gönderilemedi:', await r.json().catch(()=>({})));
+        }
+        showToast('Düello reddedildi.',false);
+        await removeNotifFromPanel(n.id);
+      });
+
+      body.appendChild(row);
+    });
+  }
+
+  panel.appendChild(body);
+  document.body.appendChild(overlay);
+  document.body.appendChild(panel);
+}
+
+// Düello davetini kabul et → lobi oluştur → her ikisini gönder
+async function acceptDuelInvite(inviteId){
+  // Daveti getir
+  const invite = await sb.getDuelInvite(authToken, inviteId);
+  if(!invite){ showToast('Davet bulunamadı.',false); return; }
+  if(invite.status !== 'pending'){ showToast('Bu davet artık geçerli değil.',false); return; }
+  if(new Date(invite.expires_at) < new Date()){ showToast('Davet süresi dolmuş.',false); return; }
+
+  // Daveti kabul et
+  await sb.updateDuelInvite(authToken, inviteId, {status:'accepted'});
+
+  // Gönderene bildirim: davet kabul edildi + lobi kodu gelecek
+  // Lobi kodu WS bağlantısı kurulunca gönderilecek
+  activeDuelInvite=null;
+  clearTimeout(duelWaitTimer);
+
+  // Daveti gönderen kişiye lobi kodunu ilet: yeni oda kurulunca
+  // ORİJİNAL davetin lobby_code alanını güncelleyeceğiz (yeni davet DEĞİL).
+  acceptedInviteId = invite.id;
+  isPrivateLobby=true;
+  subScreen='lobby'; lobbyMode='waiting';
+  startGame(null);  // yeni lobi aç
+}
+
+async function renderNotifications(){
+  const raw=await sb.getNotifications(authToken);
+  const notifs=raw.filter(n=>!dismissedNotifIds.has(n.id));
+  await sb.markAllNotifsRead(authToken);
+  unreadCount=0;
+
+  const wrap=el(`<div></div>`);
+  const hdr=el(`<div class="screen-header"><div class="back-btn" id="back">‹</div><div class="screen-title">🔔 Bildirimler</div>${notifs.length?'<div id="clear-all-notifs" style="margin-left:auto;font-size:12px;color:#8b93a8;cursor:pointer;white-space:nowrap">Tümünü Sil</div>':''}</div>`);
+  hdr.querySelector('#back').addEventListener('click',()=>{subScreen=null;render();});
+  hdr.querySelector('#clear-all-notifs')?.addEventListener('click',async()=>{
+    cachedNotifs=notifs;
+    await clearAllNotifications();
+    subScreen='notifications';render();
+  });
+  wrap.appendChild(hdr);
+
+  if(!notifs.length){
+    wrap.appendChild(el(`<div class="card" style="text-align:center;color:#6b7080;font-size:13px">Bildirim yok</div>`));
+  } else {
+    const card=el(`<div class="card"></div>`);
+    for(const n of notifs){
+      const timeAgo=relativeTime(n.created_at);
+      let icon='🔔', text='';
+      if(n.type==='friend_request'){icon='👥';text=`<strong>${esc(n.from?.username||'?')}</strong> sana arkadaşlık isteği gönderdi`;}
+      else if(n.type==='friend_accepted'){icon='✅';text=`<strong>${esc(n.from?.username||'?')}</strong> arkadaşlık isteğini kabul etti`;}
+      else if(n.type==='rematch'){icon='🔥';text=`<strong>${esc(n.from?.username||'?')}</strong> rövanş istiyor`;}
+
+      const row=el(`
+        <div class="notif-row" style="${n.read?'':'background:#1a2040;border-radius:8px;padding:8px;'}position:relative;">
+          <div class="notif-icon">${icon}</div>
+          <div class="notif-text">
+            <div>${text}</div>
+            <div class="notif-time">${timeAgo}</div>
+          </div>
+          ${n.type==='friend_request'?`<div class="notif-actions"><button class="btn-success btn-sm" id="acc-notif-${n.id}">✓</button><button class="btn-danger btn-sm" id="rej-notif-${n.id}">✗</button></div>`:''}
+          <div class="np-dismiss" id="dismiss-notif-${n.id}" title="Bildirimi sil" style="position:absolute;top:8px;right:8px">✕</div>
+        </div>
+      `);
+
+      row.querySelector(`#dismiss-notif-${n.id}`)?.addEventListener('click',async(e)=>{
+        e.stopPropagation();
+        dismissedNotifIds.add(n.id);
+        row.remove();
+        try{ await sb.deleteNotification(authToken,n.id); }
+        catch(err){
+          console.error('Bildirim silinemedi, bir kez daha deneniyor:', err.message);
+          try{ await sb.deleteNotification(authToken,n.id); }
+          catch(err2){ console.error('Bildirim silme tekrar başarısız oldu:', err2.message); }
+        }
+      });
+
+      if(n.type==='friend_request'){
+        row.querySelector(`#acc-notif-${n.id}`)?.addEventListener('click',async()=>{
+          const fr=friends.find(f=>f.requester===n.from_id&&f.addressee===authUser.id);
+          if(fr){await sb.acceptFriend(authToken,fr.id);friends=await sb.getFriends(authToken);}
+          showToast('Arkadaş eklendi!',true);subScreen='notifications';renderNotifications();
+        });
+        row.querySelector(`#rej-notif-${n.id}`)?.addEventListener('click',async()=>{
+          const fr=friends.find(f=>f.requester===n.from_id&&f.addressee===authUser.id);
+          if(fr){await sb.rejectFriend(authToken,fr.id);friends=await sb.getFriends(authToken);}
+          subScreen='notifications';renderNotifications();
+        });
+      }
+      card.appendChild(row);
+    }
+    wrap.appendChild(card);
+  }
+  app.appendChild(wrap);
+}
+
+// ── Profil Kartı Modal ────────────────────────────────────
+async function openProfileCard(p, isSelf=false){
+  profileCardData={profile:p,isSelf};
+  // Maç geçmişini çek
+  const history=await sb.getMatchHistory(authToken,p.id,5);
+  profileCardData.history=history;
+  subScreen='profile-card';
+  render();
+}
+
+function renderProfileCardModal(){
+  const {profile:p,isSelf,history=[]}=profileCardData;
+  const winRate=(p.wins+p.losses)>0?Math.round(p.wins*100/(p.wins+p.losses)):0;
+
+  const overlay=el(`<div class="modal-overlay" id="overlay"></div>`);
+  const sheet=el(`
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      ${isSelf?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><div class="back-btn" id="profile-back">‹</div><div style="font-size:14px;font-weight:600">Profilim</div></div>`:''}
+      <div class="profile-card-header">
+        <div class="profile-big-avatar">🦁</div>
+        <div class="profile-name">${esc(p.username)}</div>
+        <div class="profile-level">LEVEL ${p.level}</div>
+        <div class="profile-stats">
+          <div class="profile-stat"><div class="ps-val">${p.wins}</div><div class="ps-lbl">🏆 Galibiyet</div></div>
+          <div class="profile-stat"><div class="ps-val">${p.losses}</div><div class="ps-lbl">💀 Mağlubet</div></div>
+          <div class="profile-stat"><div class="ps-val">${winRate}%</div><div class="ps-lbl">Kazanma</div></div>
+        </div>
+        <div class="profile-mmr">MMR: ${p.mmr||1000}</div>
+        <div class="profile-fav">En sevdiği: 🐘 Fil</div>
+      </div>
+      ${!isSelf?`<button class="btn-primary" id="btn-challenge" style="margin-bottom:12px">⚔️ MEYDAN OKU</button>`:''}
+      ${!isSelf&&!friends.find(f=>(f.requester===p.id||f.addressee===p.id)&&f.status==='accepted')?
+        `<button class="btn-secondary" id="btn-add-friend" style="margin-bottom:12px">+ Arkadaş Ekle</button>`:''}
+    </div>
+  `);
+
+  // Son oynanlar
+  if(history.length){
+    const histSection=el(`<div><div class="section-label" style="margin-top:0">🕐 Son Oynanlar</div><div class="card" id="hist-card"></div></div>`);
+    const histCard=histSection.querySelector('#hist-card');
+    history.forEach(m=>{
+      const isWinner=m.winner_id===p.id;
+      const opId=m.player1_id===p.id?m.player2_id:m.player1_id;
+      const myScore=m.player1_id===p.id?m.p1_score:m.p2_score;
+      const oppScore=m.player1_id===p.id?m.p2_score:m.p1_score;
+      histCard.appendChild(el(`
+        <div class="match-row">
+          <div class="match-opponent">Oyuncu</div>
+          <div class="match-score">${myScore} - ${oppScore}</div>
+          <div class="match-result">${isWinner?'✅':'❌'}</div>
+          <div class="match-time">${relativeTime(m.played_at)}</div>
+        </div>
+      `));
+    });
+    sheet.appendChild(histSection);
+  }
+
+  sheet.querySelector('#profile-back')?.addEventListener('click',()=>{subScreen=null;profileCardData=null;render();});
+  sheet.querySelector('#btn-challenge')?.addEventListener('click',()=>{
+    subScreen=null;profileCardData=null;
+    startGame(null);
+  });
+  sheet.querySelector('#btn-add-friend')?.addEventListener('click',async()=>{
+    await sb.sendFriendRequest(authToken,p.id);
+    friends=await sb.getFriends(authToken);
+    showToast('Arkadaşlık isteği gönderildi!',true);
+    subScreen=null;profileCardData=null;render();
+  });
+
+  overlay.appendChild(sheet);
+  overlay.addEventListener('click',(e)=>{if(e.target===overlay){subScreen=null;profileCardData=null;render();}});
+  app.appendChild(overlay);
+}
+
+// ── Lobi Ekranı ───────────────────────────────────────────
+function renderLobby(){
+  if(lobbyMode==='menu'){renderLobbyMenu();return;}
+  if(lobbyMode==='waiting'){renderLobbyWaiting();return;}
+}
+
+function renderLobbyMenu(){
+  const wrap=el(`<div></div>`);
+  const hdr=el(`<div class="screen-header"><div class="back-btn" id="back">‹</div><div class="screen-title">👥 Arkadaşınla Oyna</div></div>`);
+  hdr.querySelector('#back').addEventListener('click',()=>{subScreen=null;render();});
+  wrap.appendChild(hdr);
+
+  wrap.appendChild(el(`
+    <div class="card" style="text-align:center">
+      <div style="font-size:32px;margin-bottom:10px">🎮</div>
+      <div style="font-weight:700;margin-bottom:6px">Yeni Oda Oluştur</div>
+      <div style="font-size:13px;color:#6b7080;margin-bottom:14px">Bir oda kodu al, arkadaşına gönder</div>
+      <button class="btn-primary" id="btn-create">Oda Oluştur</button>
+    </div>
+  `));
+
+  const joinCard=el(`
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:10px;text-align:center">Koda Katıl</div>
+      <input id="in-code" placeholder="Oda kodu gir…" maxlength="8" style="text-transform:uppercase;letter-spacing:3px;font-size:18px;text-align:center">
+      <button class="btn-secondary" id="btn-join">Katıl</button>
+    </div>
+  `);
+  wrap.appendChild(joinCard);
+
+  wrap.querySelector('#btn-create').addEventListener('click',()=>{
+    isPrivateLobby=true;
+    lobbyMode='waiting';
+    startGame(null);
+  });
+  wrap.querySelector('#btn-join').addEventListener('click',()=>{
+    const code=wrap.querySelector('#in-code').value.trim().toUpperCase();
+    if(!code){showErr('Oda kodu gir.');return;}
+    isPrivateLobby=false;  // koda katılmak = sunucu zaten odayı bilir, private gerekmez
+    lobbyMode='waiting';
+    startGame(code);
+  });
+  app.appendChild(wrap);
+}
+
+function renderLobbyWaiting(){
+  const wrap=el(`<div></div>`);
+  const hdr=el(`<div class="screen-header"><div class="back-btn" id="back">‹</div><div class="screen-title">⚔️ Düello Lobisi</div></div>`);
+  hdr.querySelector('#back').addEventListener('click',()=>{
+    if(confirm('Lobiden ayrılmak istiyor musun?')){
+      disconnectWs();subScreen=null;lobbyMode=null;render();
+    }
+  });
+  wrap.appendChild(hdr);
+
+  // Oda kodu (sadece kod girilmemiş, yani oda sahibiyse göster)
+  const code=myGameId||'…';
+  const codeCard=el(`
+    <div style="background:#111318;border-radius:10px;padding:10px 14px;text-align:center;margin-bottom:12px">
+      <div style="font-size:11px;color:#6b7080;margin-bottom:4px">ODA KODU</div>
+      <div style="font-family:monospace;font-size:22px;font-weight:900;letter-spacing:4px;color:#4f7cff">${esc(code)}</div>
+      <button class="btn-secondary btn-sm" id="btn-copy" style="margin-top:8px">📋 Kopyala</button>
+    </div>
+  `);
+  codeCard.querySelector('#btn-copy').addEventListener('click',()=>{
+    navigator.clipboard?.writeText(code).catch(()=>{});
+    showToast('Kopyalandı!',true);
+  });
+  wrap.appendChild(codeCard);
+
+  // VS ekranı
+  const p1name=lobbyPlayers['player1']?.name||'Bekleniyor…';
+  const p2name=lobbyPlayers['player2']?.name||'Bekleniyor…';
+  const p1ready=lobbyPlayers['player1']?.ready||false;
+  const p2ready=lobbyPlayers['player2']?.ready||false;
+  const p1here=!!lobbyPlayers['player1']?.name;
+  const p2here=!!lobbyPlayers['player2']?.name;
+
+  const vsCard=el(`<div class="card" style="margin-bottom:12px"></div>`);
+  vsCard.appendChild(el(`
+    <div class="lobby-vs-wrap">
+      <div class="lobby-vs-side">
+        <div class="lvs-avatar">${p1here?'👤':'⏳'}</div>
+        <div class="lvs-name">${esc(p1name)}</div>
+        <div class="lvs-level">${p1here?'Oyuncu 1':''}</div>
+        <div class="lvs-ready ${p1ready?'yes':'no'}">${p1ready?'✅ Hazır':'⏳ Bekliyor'}</div>
+      </div>
+      <div class="lobby-vs-divider">VS</div>
+      <div class="lobby-vs-side">
+        <div class="lvs-avatar">${p2here?'👤':'⏳'}</div>
+        <div class="lvs-name">${esc(p2name)}</div>
+        <div class="lvs-level">${p2here?'Oyuncu 2':''}</div>
+        <div class="lvs-ready ${p2ready?'yes':'no'}">${p2ready?'✅ Hazır':'⏳ Bekliyor'}</div>
+      </div>
+    </div>
+  `));
+  wrap.appendChild(vsCard);
+
+  const myReady=lobbyPlayers[myPlayerId]?.ready||false;
+  const bothConnected=p1here&&p2here;
+
+  if(!bothConnected){
+    wrap.appendChild(el(`<div style="text-align:center;font-size:13px;color:#6b7080;margin-bottom:12px">Rakip bekleniyor…</div>`));
+  } else if(!myReady){
+    const btn=el(`<button class="btn-success">✅ Hazırım!</button>`);
+    btn.addEventListener('click',()=>SFX.lock());
+    btn.addEventListener('click',()=>{
+      btn.disabled=true;btn.textContent='⏳ Gönderiliyor…';
+      sendReady();
+    });
+    wrap.appendChild(btn);
+  } else {
+    wrap.appendChild(el(`<div style="text-align:center;font-size:13px;color:#4fd671;margin-bottom:12px">✅ Hazırsın. Rakip bekleniyor…</div>`));
+  }
+
+  app.appendChild(wrap);
+}
+
+// Sunucudan gelen startsAt zamanına göre senkronize geri sayım (5→1→GO).
+// Oyunu başlatma işini sunucu yapar; burada sadece görsel olarak sayıyoruz.
+let lobbyCountdownTimer=null;
+function startCountdownSequence(startsAt,durationMs=5000){
+  if(lobbyCountdownTimer) return; // zaten çalışıyor
+  let shown=null;
+  const tick=()=>{
+    const msLeft=startsAt-Date.now();
+    const secLeft=Math.max(0,Math.ceil(msLeft/1000));
+    if(secLeft>0){
+      if(secLeft!==shown){shown=secLeft;showCountdownScreen(secLeft);}
+      lobbyCountdownTimer=setTimeout(tick,Math.min(200,msLeft));
+    } else {
+      showCountdownScreen('GO');
+      lobbyCountdownTimer=null;
+    }
+  };
+  tick();
+}
+
+function showCountdownScreen(val){
+  document.querySelector('.countdown-screen')?.remove();
+  const screen=document.createElement('div');
+  screen.className='countdown-screen';
+  if(val==='GO'){
+    screen.classList.add('shake');
+    // Kılıç çarpışma sesi
+    SFX.duelChallenge();
+    screen.innerHTML=`
+      <div class="clash-wrap">
+        <div class="clash-sword clash-sword-l">⚔️</div>
+        <div class="clash-sword clash-sword-r">🗡️</div>
+        <div class="clash-spark">✨</div>
+      </div>
+      <div class="countdown-go">SAVAŞ BAŞLIYOR!</div>
+    `;
+    document.body.appendChild(screen);
+    setTimeout(()=>screen.remove(),1200);
+  } else {
+    // 5'ten büyükse 5 göster (sunucu daha büyük değer verirse)
+    const display = Math.min(val, 5);
+    SFX.tickFinal();
+    screen.innerHTML=`
+      <div class="countdown-number" style="animation:popIn .6s cubic-bezier(.17,.89,.32,1.28) both">${display}</div>
+      <div class="countdown-label">Hazır ol…</div>
+    `;
+    document.body.appendChild(screen);
+    setTimeout(()=>screen.remove(),900);
+  }
+}
+
+
+// ── Oyun Ekranı ───────────────────────────────────────────
+function isHost(){return myPlayerId==='player1';}
+
+function renderGame(){
+  // Forfeit sonucu
+  if(forfeitResult){
+    const iWon=forfeitResult.winnerId===myPlayerId;
+    const card=el(`
+      <div class="card" style="text-align:center">
+        <div style="font-size:48px;margin-bottom:8px">${iWon?'🏆':'💀'}</div>
+        <div style="font-size:22px;font-weight:800;margin-bottom:8px">
+          ${iWon?'Kazandın!':'Kaybettin.'}
+        </div>
+        <div style="font-size:14px;color:#6b7080;margin-bottom:16px">
+          ${iWon?'Rakip bağlantısı kesildi ve geri dönmedi.':'Bağlantın kesildi ve 20 saniyede geri dönemedin.'}
+        </div>
+      </div>
+    `);
+    app.appendChild(card);
+    app.appendChild(backMenuBtn('Ana Menüye Dön'));
+    return;
+  }
+
+  if(connStatus==='disconnected'&&currentState){
+    app.appendChild(el(`
+      <div class="reconnect-bar"><strong style="color:#e8c14f">Bağlantı kesildi.</strong> 20 sn içinde geri dön!<br>
+      <button class="btn-primary btn-sm" id="btn-rc" style="margin-top:8px">Yeniden Bağlan</button></div>
+    `));
+    app.querySelector('#btn-rc').addEventListener('click',()=>{reconnectAttempts=0;connectWs(myGameId);});
+  }
+
+  if(!currentState){
+    app.appendChild(el(`<div class="card" style="text-align:center;padding:28px">${connStatus==='reconnecting'?`Bağlanılıyor… (${reconnectAttempts}/${MAX_RECONNECT})`:'Bağlanılıyor…'}</div>`));
+    app.appendChild(backMenuBtn());
+    return;
+  }
+
+  let dot='dot-green',stxt='Bağlı';
+  if(connStatus==='opponent_gone'){dot='dot-yellow dot-pulse';stxt='Rakip bağlantısı koptu…';}
+  if(connStatus==='disconnected'){dot='dot-red';stxt='Bağlantı kesildi';}
+  if(connStatus==='reconnecting'){dot='dot-yellow dot-pulse';stxt='Yeniden bağlanılıyor…';}
+  app.appendChild(el(`
+    <div class="status-bar">
+      <span><span class="dot ${dot}"></span>${stxt}</span>
+      <span>${esc(currentState.players[myPlayerId]?.name||'?')}</span>
+    </div>
+  `));
+
+  const badges=el(`<div class="player-badges"></div>`);
+  for(const pid of['player1','player2']){
+    const p=currentState.players[pid];
+    const isMe=pid===myPlayerId;
+    const isActive=currentState.auction?.activeBidderId===pid;
+    badges.appendChild(el(`
+      <div class="p-badge ${isActive?'active':''} ${isMe?'me':''}" id="badge-${pid}">
+        <div class="p-name">${esc(p.name)}${isMe?' 👤':''}</div>
+        <div class="p-bal">${p.balance} 🪙</div>
+      </div>
+    `));
+  }
+  app.appendChild(badges);
+  // Kenar raflarını çiz (state'den — her render'da taze)
+  renderSideShelves();
+
+  switch(currentState.status){
+    case 'waiting':      renderGameWaiting(); break;
+    case 'auction':      renderAuction();     break;
+    case 'free_choice':  renderFreeChoice();  break;
+    case 'round_result': renderRoundResult(); break;
+    case 'collection':   renderCollection();  break;
+    case 'battle':       renderBattle();      break;
+    case 'final':        renderFinal();       break;
+  }
+}
+
+function renderGameWaiting(){
+  const card=el(`
+    <div class="card" style="text-align:center">
+      <div style="font-size:14px;color:#6b7080;margin-bottom:12px">Rakip bekleniyor…</div>
+      <div class="lobby-code-box">
+        <div class="lobby-code">${esc(myGameId||'…')}</div>
+        <div class="lobby-hint">Bu kodu rakibine gönder</div>
+        <button class="btn-secondary btn-sm" id="btn-copy" style="margin-top:8px">Kopyala</button>
+      </div>
+    </div>
+  `);
+  app.appendChild(card);
+  card.querySelector('#btn-copy').addEventListener('click',()=>{navigator.clipboard?.writeText(myGameId||'').catch(()=>{});showToast('Kopyalandı!',true);});
+  app.appendChild(backMenuBtn());
+}
+
+function renderAuction(){
+  const a=currentState.auction;
+  const isMyTurn=a.activeBidderId===myPlayerId;
+  const minBid=a.currentBid?a.currentBid.amount+1:1;
+  const myBal=currentState.players[myPlayerId].balance;
+  const rc=RARITY_COLORS[a.animalRarity]||'#888';
+
+  // Hızlı teklif input değeri: bu tur/bu teklif durumu için daha önce
+  // ayarlanmış bir değer yoksa (yeni tur, yeni min teklif) sıfırdan başlat.
+  const bidKey=`${currentState.round}-${a.currentBid?a.currentBid.amount:0}-${a.activeBidderId}`;
+  if(bidInputKey!==bidKey){ bidInputKey=bidKey; bidInputValue=Math.min(Math.max(minBid,1),myBal); }
+
+  const card=el(`
+    <div class="card">
+      <div class="animal-big">
+        <div class="a-emoji anim-pop">${a.animalEmoji}</div>
+        <div class="a-name">${esc(a.animalName)} × ${a.quantity}</div>
+        <div class="a-meta">Güç ${a.animalPower.basePower} · ATK ${a.animalPower.attack} · DEF ${a.animalPower.defense} · SPD ${a.animalPower.speed}</div>
+        <span class="rarity-badge" style="background:${rc}22;color:${rc}">${a.animalRarity}</span>
+      </div>
+      <div class="bid-box">
+        <div class="bid-amt">${a.currentBid?a.currentBid.amount+' 🪙':'İlk teklif'}</div>
+        ${a.currentBid?`<div class="bid-who">${esc(currentState.players[a.currentBid.bidderId]?.name||'')}</div>`:''}
+      </div>
+      <div class="turn-box">${isMyTurn?'🎯 Sıra sende!':`⏳ ${esc(currentState.players[a.activeBidderId]?.name||'')} düşünüyor…`}</div>
+      <div class="countdown-wrap" style="margin:6px 0 10px">
+        <div class="countdown-label" id="cd-lbl">${isMyTurn?'':`Rakip için…`}</div>
+        <div class="countdown-bar"><div class="countdown-fill" id="cd-fill" style="width:${countdownPct()}%"></div></div>
+      </div>
+      ${isMyTurn?`
+        <div class="bid-row">
+          <input type="number" id="bid-amt" inputmode="numeric" pattern="[0-9]*" min="${minBid}" max="${myBal}" value="${bidInputValue}" ${myBal<minBid?'disabled':''}>
+          <button class="btn-primary" id="btn-bid" ${myBal<minBid?'disabled':''}>Teklif Ver</button>
+        </div>
+        ${myBal>=minBid?`
+        <div class="quick-bid-row" style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center">
+          <button class="btn-secondary btn-sm" type="button" data-qb="1">+1</button>
+          <button class="btn-secondary btn-sm" type="button" data-qb="3">+3</button>
+          <button class="btn-secondary btn-sm" type="button" data-qb="5">+5</button>
+          <button class="btn-secondary btn-sm" type="button" data-qb="all">Tüm Para</button>
+          <button class="btn-secondary btn-sm" type="button" id="btn-bid-plus" title="1 TL artır" style="font-weight:800;min-width:34px">+</button>
+        </div>
+        `:''}
+        <button class="btn-secondary" id="btn-pass" ${!a.currentBid?'disabled':''}>Pas Geç</button>
+        ${!a.currentBid?'<p style="font-size:12px;color:#6b7080;margin-top:6px">İlk teklifi vermeden pas geçemezsin.</p>':''}
+        ${myBal<minBid?'<p style="font-size:12px;color:#6b7080;margin-top:6px">Bakiyen yetersiz.</p>':''}
+      `:`<div class="observer">Rakibin hamlesini bekle…</div>`}
+    </div>
+  `);
+  app.appendChild(card);
+  if(isMyTurn){
+    const inputEl=card.querySelector('#bid-amt');
+
+    // Klavye açıldığında iOS Safari'de input görünür alanda kalmasını sağla.
+    // visualViewport resize eventi: klavye açılınca aktif elementi görünür yap.
+    inputEl?.addEventListener('focus',()=>{
+      setTimeout(()=>inputEl.scrollIntoView({behavior:'smooth',block:'center'}),300);
+    });
+
+    // Kullanıcı doğrudan yazarsa da hızlı butonların referans aldığı
+    // değeri (bidInputValue) güncel tut.
+    inputEl?.addEventListener('input',()=>{
+      const v=parseInt(inputEl.value,10);
+      bidInputValue=isNaN(v)?minBid:v;
+    });
+
+    // Klemp yardımcı: hızlı butonlar ve + butonu, oyuncunun bakiyesini
+    // aşamaz ve minimum tekliften düşük olamaz.
+    const applyBidValue=(next)=>{
+      next=Math.max(minBid,Math.min(next,myBal));
+      bidInputValue=next;
+      if(inputEl) inputEl.value=next;
+    };
+
+    card.querySelectorAll('[data-qb]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const qb=btn.getAttribute('data-qb');
+        const base=parseInt(inputEl?.value,10);
+        const current=isNaN(base)?(a.currentBid?a.currentBid.amount:0):base;
+        applyBidValue(qb==='all'?myBal:current+parseInt(qb,10));
+      });
+    });
+
+    // Ayrı "+" butonu — hızlı seçeneklerden bağımsız, her tıklamada
+    // mevcut (ekrandaki) teklifi tam olarak 1 TL artırır, göndermez.
+    card.querySelector('#btn-bid-plus')?.addEventListener('click',()=>{
+      const base=parseInt(inputEl?.value,10);
+      const current=isNaN(base)?(a.currentBid?a.currentBid.amount:minBid-1):base;
+      applyBidValue(current+1);
+    });
+
+    card.querySelector('#btn-bid')?.addEventListener('click',()=>{
+      const amt=parseInt(card.querySelector('#bid-amt').value,10);
+      if(!amt||amt<minBid){showErr(`Min teklif ${minBid} 🪙`);return;}
+      SFX.bid(amt, currentState.players[myPlayerId].balance + amt); // artan heyecan
+      sendAction('PLACE_BID',{bidderId:myPlayerId,amount:amt});
+      bidInputValue=null; bidInputKey=null;
+    });
+    card.querySelector('#btn-pass')?.addEventListener('click',()=>{ SFX.pass(); sendAction('PASS',{passerId:myPlayerId}); });
+    card.querySelector('#bid-amt')?.addEventListener('keydown',e=>{if(e.key==='Enter')card.querySelector('#btn-bid')?.click();});
+  }
+}
+
+function renderFreeChoice(){
+  const fc=currentState.freeChoice;
+  const iAmDecider=fc.deciderId===myPlayerId;
+  const rc=RARITY_COLORS[fc.animalRarity]||'#888';
+
+  const card=el(`
+    <div class="card">
+      <div class="animal-big">
+        <div class="a-emoji">${fc.animalEmoji}</div>
+        <div class="a-name">${esc(fc.animalName)} × ${fc.quantity}</div>
+        <div class="a-meta">Güç ${fc.animalPower.basePower} · ATK ${fc.animalPower.attack} · DEF ${fc.animalPower.defense} · SPD ${fc.animalPower.speed}</div>
+        <span class="rarity-badge" style="background:${rc}22;color:${rc}">${fc.animalRarity}</span>
+      </div>
+      <div class="turn-box" style="margin-top:10px">
+        ${iAmDecider
+          ?`⚡ ${esc(currentState.players[fc.brokeId]?.name||'Rakip')}in parası yok — bu hayvan için karar sende!`
+          :`⏳ ${esc(currentState.players[fc.deciderId]?.name||'')} karar veriyor…`}
+      </div>
+      ${iAmDecider?`
+        <div style="display:flex;gap:10px;margin-top:14px">
+          <button class="btn-primary" id="btn-take" style="flex:1">💰 Al (Bedava)</button>
+          <button class="btn-secondary" id="btn-give" style="flex:1">✋ Pas (Ona Bırak)</button>
+        </div>
+      `:`<div class="observer">Bakiyen yok, bu turda teklif veremiyorsun. Rakibin kararını bekle…</div>`}
+    </div>
+  `);
+  app.appendChild(card);
+  if(iAmDecider){
+    card.querySelector('#btn-take')?.addEventListener('click',()=>sendAction('CHOOSE_FREE_ITEM',{deciderId:myPlayerId,choice:'take'}));
+    card.querySelector('#btn-give')?.addEventListener('click',()=>sendAction('CHOOSE_FREE_ITEM',{deciderId:myPlayerId,choice:'pass'}));
+  }
+}
+
+function renderRoundResult(){
+  const r=currentState.roundResult;
+  const iWon=r.winnerId===myPlayerId;
+  const secLeft=Math.max(0,Math.ceil((countdownEnd-Date.now())/1000));
+  const card=el(`
+    <div class="card" style="text-align:center">
+      <div class="animal-big">
+        <div class="a-emoji">${r.animalEmoji}</div>
+        <div class="a-name">${esc(r.animalName)} × ${r.quantity}</div>
+      </div>
+      <div style="font-size:16px;margin-bottom:14px">
+        ${iWon?'🎉 ':''}<strong>${esc(currentState.players[r.winnerId]?.name||r.winnerId)}</strong> kazandı
+        ${r.price?`(${r.price} 🪙)`:'(ücretsiz)'}
+        ${r.auto?'<div style="font-size:12px;color:#6b7080;margin-top:4px">otomatik dağıtım</div>':''}
+      </div>
+      <div class="countdown-wrap">
+        <div class="countdown-label" id="cd-lbl">${secLeft}sn içinde devam ediyor…</div>
+        <div class="countdown-bar"><div class="countdown-fill" id="cd-fill" style="width:${countdownPct()}%"></div></div>
+      </div>
+    </div>
+  `);
+  app.appendChild(card);
+  // Hayvanın kazanan tarafa doğru uçtuğu animasyon — hem manuel hem
+  // otomatik dağıtımda (r.auto) çalışır. Raf, uçuş bitince güncellenir
+  // ki hayvan "iniş" anında rafta belirmiş gibi görünsün.
+  flyAnimalToWinner(r);
+  setTimeout(()=>renderSideShelves(), 620);
+}
+
+// Ortadaki karttaki hayvan emojisini, kazananın tarafındaki (sol=player1,
+// sağ=player2) kenara doğru uçurur. Sadece görsel bir efekttir, state'e
+// dokunmaz — raf güncellemesi ayrı olarak (620ms sonra) tetiklenir.
+function flyAnimalToWinner(r){
+  const emojiEl=document.querySelector('.animal-big .a-emoji');
+  if(!emojiEl) return;
+  const rect=emojiEl.getBoundingClientRect();
+  const goLeft=r.winnerId==='player1';
+  const targetX=goLeft?24:window.innerWidth-24;
+  const targetY=window.innerHeight*0.55;
+  const startX=rect.left+rect.width/2;
+  const startY=rect.top+rect.height/2;
+
+  const clone=document.createElement('div');
+  clone.className='fly-animal';
+  clone.textContent=r.animalEmoji;
+  clone.style.left=startX+'px';
+  clone.style.top=startY+'px';
+  clone.style.marginLeft='-22px'; // font-size 44px'e göre ortala — transform animasyonla çakışmasın diye margin kullanılıyor
+  clone.style.marginTop='-22px';
+  clone.style.setProperty('--fly-x',(targetX-startX)+'px');
+  clone.style.setProperty('--fly-y',(targetY-startY)+'px');
+  clone.style.setProperty('--fly-rot',(goLeft?-25:25)+'deg');
+  document.body.appendChild(clone);
+  setTimeout(()=>clone.remove(),700);
+}
+
+function renderCollection(){
+  const card=el(`<div class="card"></div>`);
+  card.appendChild(el(`<div style="font-weight:700;text-align:center;margin-bottom:12px">Ordular Hazır ⚔️</div>`));
+  for(const pid of['player1','player2']){
+    const p=currentState.players[pid];
+    const s=el(`<div style="margin-bottom:12px"><div class="p-name">${esc(p.name)}${pid===myPlayerId?' 👤':''}</div></div>`);
+    const g=el(`<div class="coll-grid"></div>`);
+    p.animals.length?p.animals.forEach(a=>g.appendChild(el(`<div class="coll-item"><div style="font-size:24px">${a.emoji}</div><div>×${a.quantity}</div></div>`))):g.appendChild(el(`<div class="coll-item">Boş</div>`));
+    s.appendChild(g);card.appendChild(s);
+  }
+  app.appendChild(card);
+
+  const readyCard=el(`<div class="card"></div>`);
+  const readyRow=el(`<div class="ready-row"></div>`);
+  for(const pid of['player1','player2']){
+    const p=currentState.players[pid];
+    const done=readyPlayers.has(pid);
+    readyRow.appendChild(el(`<div class="ready-item ${done?'done':''}"><div>${esc(p.name)}</div><div style="margin-top:4px;font-size:18px">${done?'✅':'⏳'}</div></div>`));
+  }
+  readyCard.appendChild(readyRow);
+  const secLeft=Math.max(0,Math.ceil((countdownEnd-Date.now())/1000));
+  readyCard.appendChild(el(`
+    <div class="countdown-wrap" style="margin-top:10px">
+      <div class="countdown-label" id="cd-lbl">${readyPlayers.has(myPlayerId)?'Rakip bekleniyor…':`Hazır ol! ${secLeft}sn`}</div>
+      <div class="countdown-bar"><div class="countdown-fill" id="cd-fill" style="width:${countdownPct()}%"></div></div>
+    </div>
+  `));
+  if(!readyPlayers.has(myPlayerId)){
+    const btn=el(`<button class="btn-success" style="margin-top:10px">✅ Hazırım, Savaşa Başla!</button>`);
+    btn.addEventListener('click',()=>{SFX.lock();btn.disabled=true;sendReady();});
+    readyCard.appendChild(btn);
+  }
+  app.appendChild(readyCard);
+}
+
+function renderBattle(){
+  const b=currentState.battle;
+  const p1a=currentState.players.player1.animals[b.matchIndex];
+  const p2a=currentState.players.player2.animals[b.matchIndex];
+  const card=el(`
+    <div class="card">
+      <div class="score-line">Karşılaşma ${b.matchIndex+1}/5 — ${b.scores.player1} : ${b.scores.player2}</div>
+      <div class="battle-vs" id="bvs"></div>
+      <div id="bact"></div>
+    </div>
+  `);
+  const bvs=card.querySelector('#bvs');
+  const bact=card.querySelector('#bact');
+
+  if(!b.revealed){
+    bvs.innerHTML=`
+      <div class="b-side"><div class="b-emoji">${p1a?.emoji||'?'}</div><div>${esc(currentState.players.player1.name)}</div><div style="font-size:12px;color:#6b7080">×${p1a?.quantity||0}</div></div>
+      <div class="b-vs" style="animation:vsFlash 1.5s ease infinite">VS</div>
+      <div class="b-side"><div class="b-emoji">${p2a?.emoji||'?'}</div><div>${esc(currentState.players.player2.name)}</div><div style="font-size:12px;color:#6b7080">×${p2a?.quantity||0}</div></div>
+    `;
+    const secLeft=Math.max(0,Math.ceil((countdownEnd-Date.now())/1000));
+    bact.innerHTML=`<div class="countdown-wrap"><div class="countdown-label" id="cd-lbl">${secLeft}sn içinde savaşıyor…</div><div class="countdown-bar"><div class="countdown-fill" id="cd-fill" style="width:${countdownPct()}%"></div></div></div>`;
+  } else {
+    const m=b.currentMatch;
+    bvs.innerHTML=`
+      <div class="b-side"><div class="b-emoji ${m.winnerId==='player1'?'winner-pulse':'loser-dim'}">${p1a?.emoji||'?'}</div><div>${esc(currentState.players.player1.name)}</div><div class="b-power ${m.winnerId==='player1'?'winner-glow':''}">${m.player1Power.final}</div></div>
+      <div class="b-vs" style="animation:vsFlash 1.5s ease infinite">VS</div>
+      <div class="b-side"><div class="b-emoji ${m.winnerId==='player2'?'winner-pulse':'loser-dim'}">${p2a?.emoji||'?'}</div><div>${esc(currentState.players.player2.name)}</div><div class="b-power ${m.winnerId==='player2'?'winner-glow':''}">${m.player2Power.final}</div></div>
+    `;
+    // Sonraki karşılaşma yazısı ve bar yok — sessiz bekleme
+  }
+  app.appendChild(card);
+  // Kazanan emoji animasyonunu 4 saniye sonra durdur
+  if(b.revealed){
+    setTimeout(()=>{
+      document.querySelectorAll('.winner-pulse').forEach(el=>{
+        el.style.animation='none';
+        el.style.filter='drop-shadow(0 0 8px #4fd67188)';
+      });
+    }, 4000);
+  }
+}
+
+/** Final ekranındaki "Maç Özeti" kartı — müzayede geçmişi ve savaş sonuçlarını gösterir. */
+function renderMatchSummaryCard(state){
+  const b=state.battle;
+  const battleRows=(b?.matches||[]).map(m=>{
+    const p1=state.players.player1.animals[m.matchIndex];
+    const p2=state.players.player2.animals[m.matchIndex];
+    const winnerName=esc(state.players[m.winnerId]?.name||'');
+    return `
+      <div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.08)">
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px">
+          <div style="text-align:left">${p1?.emoji||'?'} ×${p1?.quantity||0} <b>${m.player1Power.final}</b></div>
+          <div style="font-size:11px;color:#6b7080">Maç ${m.matchIndex+1}</div>
+          <div style="text-align:right"><b>${m.player2Power.final}</b> ×${p2?.quantity||0} ${p2?.emoji||'?'}</div>
+        </div>
+        <div style="font-size:11px;color:#4fd671;text-align:center;margin-top:2px">🏆 ${winnerName}</div>
+      </div>`;
+  }).join('');
+
+  const auctionRows=(state.log||[]).map(line=>
+    `<div style="font-size:12px;color:#c7cbd1;padding:3px 0">${esc(line)}</div>`
+  ).join('');
+
+  return el(`
+    <div class="card">
+      <div style="font-weight:700;margin-bottom:8px">⚔️ Savaş Sonuçları</div>
+      ${battleRows||'<div style="color:#6b7080;font-size:12px">Savaş kaydı yok.</div>'}
+      <div style="font-weight:700;margin:14px 0 8px">📜 Müzayede Geçmişi</div>
+      ${auctionRows||'<div style="color:#6b7080;font-size:12px">Müzayede kaydı yok.</div>'}
+    </div>
+  `);
+}
+
+function renderFinal(){
+  const b=currentState.battle;
+  const s1=b.scores.player1,s2=b.scores.player2;
+  const win=s1===s2?null:(s1>s2?'player1':'player2');
+  const iWon=win===myPlayerId;
+  const xpGain=iWon?XP_WIN:XP_LOSE;
+
+  const card=el(`
+    <div class="card" style="text-align:center">
+      <div style="font-size:48px;margin-bottom:8px;animation:${iWon?'winnerPop .6s ease infinite':'none'}">${iWon?'🏆':win?'💀':'🤝'}</div>
+      <div class="final-score">${s1} — ${s2}</div>
+      <div class="final-title">${win?esc(currentState.players[win].name)+' kazandı!':'Berabere!'}</div>
+      <div style="font-size:14px;color:#4fd671;margin-bottom:6px">${iWon?'🏆 Kazandın!':'💪 İyi oynadın!'}</div>
+      <div id="stats-line" style="font-size:12px;color:#6b7080;margin-bottom:16px">Profil yükleniyor…</div>
+      <button class="btn-secondary btn-sm" id="btn-match-summary">📋 Maç Özeti ${showMatchSummary?'▲':'▼'}</button>
+    </div>
+  `);
+  app.appendChild(card);
+  card.querySelector('#btn-match-summary')?.addEventListener('click',()=>{
+    showMatchSummary=!showMatchSummary; render();
+  });
+
+  if(showMatchSummary){
+    app.appendChild(renderMatchSummaryCard(currentState));
+  }
+
+  const opponentId=myPlayerId==='player1'?'player2':'player1';
+  const oppName=currentState.players[opponentId]?.name||'Rakip';
+
+  // Rakip rövanş istiyor → kabul/red seçimi göster
+  if(rematchStatus==='incoming'){
+    const box=el(`
+      <div class="card" style="text-align:center">
+        <div style="margin-bottom:12px;font-weight:700">🔥 <strong>${esc(oppName)}</strong> rövanş istiyor!</div>
+        <div style="display:flex;gap:10px;justify-content:center">
+          <button class="btn-primary btn-sm" id="btn-rematch-accept">Kabul Et</button>
+          <button class="btn-secondary btn-sm" id="btn-rematch-decline">Reddet</button>
+        </div>
+      </div>
+    `);
+    box.querySelector('#btn-rematch-accept').addEventListener('click',()=>{
+      if(!ws||ws.readyState!==1){showErr('Bağlantı yok.');return;}
+      SFX.rematchAccept();
+    ws.send(JSON.stringify({type:'REMATCH_RESPONSE',accepted:true}));
+      rematchStatus=null;render();
+    });
+    box.querySelector('#btn-rematch-decline').addEventListener('click',()=>{
+      SFX.rematchDecline();
+      if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'REMATCH_RESPONSE',accepted:false}));
+      rematchStatus='declined_by_me';render();
+    });
+    app.appendChild(box);
+  } else if(rematchStatus==='sent'){
+    app.appendChild(el(`<div class="card" style="text-align:center;color:#9aa0a6">⏳ Rövanş isteği gönderildi, ${esc(oppName)} bekleniyor…</div>`));
+  } else if(rematchStatus==='declined'){
+    app.appendChild(el(`<div class="card" style="text-align:center;color:#e85f5f">${esc(oppName)} rövanşı reddetti.</div>`));
+  } else if(rematchStatus==='declined_by_me'){
+    app.appendChild(el(`<div class="card" style="text-align:center;color:#e85f5f">Rövanş isteği reddedildi.</div>`));
+  } else if(rematchStatus==='opponent_left'){
+    app.appendChild(el(`<div class="card" style="text-align:center;color:#e85f5f">${esc(oppName)} karşılaşmadan ayrıldı.</div>`));
+  } else {
+    // Normal durum: rövanş isteği gönderilebilir
+    const rematch=el(`<button class="rematch-btn" id="btn-rematch">🔥 RÖVANŞ</button>`);
+    rematch.addEventListener('click',()=>{ SFX.rematchRequest();
+      if(!ws||ws.readyState!==1){showErr('Bağlantı yok.');return;}
+      ws.send(JSON.stringify({type:'REMATCH_REQUEST'}));
+      rematchStatus='sent';render();
+    });
+    app.appendChild(rematch);
+  }
+
+  const menuBtn=el(`<button class="btn-secondary" style="width:100%;margin-top:8px">← Ana Menüye Dön</button>`);
+  menuBtn.addEventListener('click',()=>{
+    // Sunucuya haber ver ki rakip "rakip ayrıldı" bilgisini görsün ve
+    // rövanş penceresi hemen kapansın.
+    if(ws&&ws.readyState===1)ws.send(JSON.stringify({type:'LEAVE_FINAL'}));
+    disconnectWs();lobbyMode=null;subScreen=null;screen='menu';render();
+  });
+  app.appendChild(menuBtn);
+}
+
+// ── WebSocket & Oyun Başlatma ─────────────────────────────
+// ── WebSocket & Oyun Başlatma ─────────────────────────────
+// Artık HER oyun (rastgele eşleşme, meydan okuma, davet, oda kodu) aynı
+// yoldan geçer: önce lobiye düşülür, "Hazırım" onayından sonra sunucu
+// 5sn'lik geri sayım başlatır, süre bitince oyun başlar.
+function startGame(existingGameId){
+  clearAutoTimer();readyPlayers.clear();countdownAutoAt=null;
+  forfeitResult=null;rematchStatus=null;
+  showMatchSummary=false;bidInputValue=null;bidInputKey=null;
+  screen='game';currentState=null;myGameId=existingGameId;
+  myPlayerId=null;reconnectAttempts=0;
+  lobbyMode='waiting';subScreen='lobby';lobbyPlayers={};lobbyCode=existingGameId;
+  connectWs(existingGameId);
+}
+
+function connectWs(existingGameId=null){
+  clearTimeout(reconnectTimer);
+  if(ws){ws.onclose=null;ws.close();ws=null;}
+  connStatus=existingGameId?'reconnecting':'connecting';
+  render();
+  try{ws=new WebSocket(DEFAULT_WS);}catch{connStatus='disconnected';showErr('Geçersiz adres.');return;}
+  ws.onopen=()=>{
+    reconnectAttempts=0;
+    startWsHeartbeat();
+    const msg={type:'JOIN',playerName:profile.username,token:authToken};
+    if(existingGameId){
+      msg.gameId=existingGameId;
+      // Kayıtlı reconnect token'ı SADECE bu kod bizim kendi (daha önce
+      // bağlandığımız) oyunumuzsa gönder. `myGameId` henüz bu bağlantı
+      // için set edilmemişse (ör. arkadaş kodunu YENİ giriyoruz), bu bir
+      // reconnect değil TAZE bir katılımdır — eski/yabancı bir token
+      // göndermek sunucunun katılımı reddetmesine yol açabiliyordu.
+      const isOwnGame = myGameId===existingGameId;
+      const savedToken=isOwnGame?localStorage.getItem('vm_reconnect_'+existingGameId):null;
+      if(savedToken)msg.reconnectToken=savedToken;
+    }
+    if(isPrivateLobby)msg.privateLobby=true;
+    if(authUser?.id)msg.userId=authUser.id; // sunucu stats için
+    ws.send(JSON.stringify(msg));
+  };
+  ws.onmessage=(evt)=>{
+    let msg;try{msg=JSON.parse(evt.data);}catch{return;}
+    handleWsMsg(msg);
+  };
+  ws.onclose=()=>{
+    stopWsHeartbeat();
+    connStatus='disconnected';
+    if(myGameId&&currentState&&currentState.status!=='final'&&reconnectAttempts<MAX_RECONNECT){
+      reconnectAttempts++;
+      const delay=Math.min(1000*Math.pow(1.6,reconnectAttempts-1),20000);
+      connStatus='reconnecting';render();
+      reconnectTimer=setTimeout(()=>connectWs(myGameId),delay);
+    }else{render();}
+  };
+}
+
+async function handleWsMsg(msg){
+  const prevStatus=currentState?.status;
+  const prevPlayerId=myPlayerId;
+
+  switch(msg.type){
+    case 'READY_UPDATE':
+      // Sunucudan gelen GERÇEK hazır durumu — her iki oyuncu da aynı
+      // bilgiyi görür (önceden bu tamamen istemci-lokal ve senkronsuzdu).
+      readyPlayers=new Set(Object.entries(msg.ready||{}).filter(([,v])=>v).map(([pid])=>pid));
+      if(currentState?.status==='collection')render();
+      return;
+    case 'CONNECTED':
+      myPlayerId=msg.playerId;
+      connStatus='connected';myGameId=msg.gameId;currentState=msg.state;
+      nextAutoAt=msg.nextAutoAt??null;
+      // Reconnect token'ı kaydet — bağlantı kopunca yeniden bağlanmak için kullanılır
+      if(msg.reconnectToken&&msg.gameId){
+        localStorage.setItem('vm_reconnect_'+msg.gameId, msg.reconnectToken);
+      }
+      // Lobi modunda slot güncelle + duel davet gönder
+      if(lobbyMode==='waiting'){
+        lobbyPlayers[myPlayerId]={name:profile.username,ready:false};
+        // Düello daveti kabul edilmişse: yeni lobi kuruldu, ORİJİNAL davetin
+        // lobby_code alanını güncelle ki gönderen kişi kendi polling'inde
+        // bu kodu görüp aynı odaya bağlansın.
+        if(acceptedInviteId&&msg.gameId){
+          sb.updateDuelInvite(authToken, acceptedInviteId, {lobby_code: msg.gameId})
+            .then(()=>showToast('Rakibine haber verildi! 🗡️',true))
+            .catch(()=>showToast('Rakibe haber verilemedi.',false));
+          acceptedInviteId=null;
+        }
+      }
+      break;
+    case 'STATE_UPDATE':
+      currentState=msg.state;connStatus='connected';
+      nextAutoAt=msg.nextAutoAt??null;
+      break;
+    case 'LOBBY_UPDATE':
+      // Lobi: oyuncu adları / hazır durumları sunucudan geldi
+      if(msg.players?.player1) lobbyPlayers['player1']={name:msg.players.player1.name,ready:!!msg.ready?.player1};
+      if(msg.players?.player2) lobbyPlayers['player2']={name:msg.players.player2.name,ready:!!msg.ready?.player2};
+      if(subScreen==='lobby')render();
+      return;
+    case 'LOBBY_COUNTDOWN_START':
+      // İki taraf da hazır — sunucu 5sn sonra oyunu başlatacak, görsel sayım göster
+      startCountdownSequence(msg.startsAt,msg.durationMs);
+      return;
+    case 'OPPONENT_DISCONNECTED':connStatus='opponent_gone';break;
+    case 'ROOM_CLOSED':
+      connStatus='disconnected';
+      if(myGameId)localStorage.removeItem('vm_reconnect_'+myGameId);
+      if(msg.reason!=='finished'){showErr(msg.reason==='timeout'?'Rakip geri dönmedi.':'Oda kapandı.');myGameId=null;}
+      break;
+    case 'ACTION_REJECTED':showErr(msg.error||'Hamle reddedildi.');break;
+    case 'ERROR':showErr(msg.error||'Sunucu hatası.');break;
+    case 'GAME_OVER_FORFEIT':
+      // Rakip bağlantıyı kesti ve geri dönmedi
+      if(myGameId)localStorage.removeItem('vm_reconnect_'+myGameId);
+      forfeitResult=msg;
+      break;
+    case 'REMATCH_REQUESTED':
+      // Rakip rövanş istiyor — final ekranında kabul/red butonları gösterilecek
+      rematchStatus='incoming';
+      break;
+    case 'REMATCH_DECLINED':
+      rematchStatus='declined';
+      break;
+    case 'OPPONENT_LEFT':
+      // Rakip ana menüye döndü ya da rövanş penceresinde ayrıldı
+      rematchStatus='opponent_left';
+      break;
+  }
+
+  const newStatus=currentState?.status;
+
+  // Lobi modunda: sadece lobi ekranını güncelle, countdown başlatma
+  if(lobbyMode==='waiting'){
+    // Sunucu START_PRIVATE_GAME'i kabul edip oyunu başlattıysa
+    // state artık 'waiting' değil → lobiden oyun ekranına geç
+    if(newStatus&&newStatus!=='waiting'){
+      lobbyMode=null;subScreen=null;screen='game';
+      // Lobi'ye göre ilk status değişimini işle
+    } else {
+      if(subScreen==='lobby')render();
+      return;
+    }
+  }
+
+  // Status değişimi veya ilk bağlantı (prevPlayerId yoktu, şimdi var)
+  const statusChanged=newStatus!==prevStatus;
+  const freshConnect=!prevPlayerId&&myPlayerId;
+
+  if(statusChanged||freshConnect){
+    // Ses efektleri
+    if(statusChanged){
+      if(newStatus==='collection') SFX.battleStart();
+      if(newStatus==='battle')     SFX.battleStart();
+    }
+    // round_result: statusChanged VEYA aynı turda yeni roundResult geldi (otomatik dağıtım zincirleri)
+    if(newStatus==='round_result'){
+      const rr=currentState.roundResult;
+      // roundResult değişti mi? (animalId + round kombinasyonu)
+      const rrId = (rr?.animalId||'')+'_'+(currentState.round||0);
+      if(rrId !== prevRoundResultId){
+        prevRoundResultId = rrId;
+        if(rr?.winnerId===myPlayerId) SFX.win(); else SFX.pass();
+        // Hayvan uçuş animasyonu
+        if(rr?.animalEmoji && rr?.winnerId){
+          setTimeout(()=>flyAnimalToShelf(rr.animalEmoji, rr.quantity||1, rr.winnerId), 350);
+        }
+      }
+    }
+    if(statusChanged){
+      if(newStatus==='final'){
+        const b=currentState.battle;
+        const win=b.scores.player1===b.scores.player2?null:(b.scores.player1>b.scores.player2?'player1':'player2');
+        setTimeout(()=>{
+          if(win===myPlayerId){ SFX.megaWin(); launchConfetti(100); }
+          else if(win){ SFX.lose(); }
+        },300);
+      }
+    }
+    if(newStatus==='collection'){
+      readyPlayers.clear();
+    }
+    if(newStatus!=='final'){
+      // Rövanş kabul edildiyse (ya da her ihtimalde final'den çıkıldıysa)
+      // eski rövanş durumunu temizle.
+      rematchStatus=null;
+    }
+    if(newStatus==='final'){
+      clearAutoTimer();
+      countdownAutoAt=null;
+      if(prevStatus!=='final')rematchStatus=null;
+      if(authToken&&authUser){
+        const b=currentState.battle;
+        const win=b.scores.player1===b.scores.player2?null:(b.scores.player1>b.scores.player2?'player1':'player2');
+        const iWon=win===myPlayerId;
+        try{
+          // Sunucu istatistikleri güncelliyor — kısa bekle, sonra profili çek
+          await new Promise(r=>setTimeout(r,1800));
+          profile=await sb.getProfile(authToken);
+          const sl=document.querySelector('#stats-line');
+          if(sl&&profile){
+            sl.textContent=`XP: ${profile.xp} · MMR: ${profile.mmr||1000} · Level ${profile.level}`;
+            sl.style.color='#4fd671';
+          }
+        }catch(e){console.error('Stats err:',e);}
+      }
+    }
+  }
+
+  // Geri sayımı sadece STATUS DEĞİŞİMİNE göre değil, sunucudan gelen
+  // nextAutoAt DEĞERİNE göre senkronize et. Böylece otomatik dağıtım gibi
+  // AUCTION fazını atlayıp doğrudan ROUND_RESULT'a dönen ya da savaş
+  // içinde art arda gelen "aynı statüdeki" geçişlerde de (round_result→
+  // round_result, battle→battle) geri sayım her zaman doğru şekilde
+  // yeniden başlar — eski hesaplanmış süreye takılı kalmaz.
+  syncCountdown();
+
+  // Battle açılış sesi — kılıç çarpışması
+  if(newStatus==='battle'&&currentState?.battle?.revealed&&
+     msg.type==='STATE_UPDATE'){
+    SFX.clashSword();
+  }
+
+  // Bakiye animasyonu: önceki değerden farklıysa flash efekti
+  requestAnimationFrame(()=>{
+    for(const pid of ['player1','player2']){
+      const newBal = currentState?.players[pid]?.balance;
+      if(newBal !== undefined && prevBalance[pid] !== undefined && newBal < prevBalance[pid]){
+        const el = document.querySelectorAll('.p-bal')[pid==='player1'?0:1];
+        if(el){ el.classList.remove('changed'); void el.offsetWidth; el.classList.add('changed'); }
+      }
+      if(newBal !== undefined) prevBalance[pid] = newBal;
+    }
+  });
+
+  render();
+}
+// Mevcut fazın otomatik bir geri sayım gerektirip gerektirmediğini ve
+// varsa hangi nextAutoAt'a bağlı olduğunu belirler; değer değiştiyse
+// (yeni bir faz/tur başladığı için) geri sayımı sıfırdan başlatır.
+function syncCountdown(){
+  const status=currentState?.status;
+  const needsCountdown = status==='auction' || status==='round_result' || status==='collection' || status==='battle';
+  if(!needsCountdown){
+    clearAutoTimer();
+    countdownAutoAt=null;
+    return;
+  }
+  if(!nextAutoAt){
+    // Sunucu henüz bir zamanlama göndermediyse dokunma — bir sonraki
+    // mesaj düzeltecek.
+    return;
+  }
+  if(nextAutoAt!==countdownAutoAt){
+    countdownAutoAt=nextAutoAt;
+    startCountdown(nextAutoAt);
+  }
+}
+
+function disconnectWs(){
+  clearAutoTimer();clearTimeout(reconnectTimer);countdownAutoAt=null;
+  stopWsHeartbeat();
+  if(ws){ws.onclose=null;ws.close();ws=null;}
+  connStatus='disconnected';currentState=null;myGameId=null;
+}
+
+function sendAction(type,payload={}){
+  if(!ws||ws.readyState!==1){showErr('Bağlantı yok.');return;}
+  ws.send(JSON.stringify({type:'ACTION',action:{type,payload}}));
+}
+
+function sendReady(){
+  if(!ws||ws.readyState!==1){showErr('Bağlantı yok.');return;}
+  ws.send(JSON.stringify({type:'READY'}));
+}
+
+// ── Countdown ─────────────────────────────────────────────
+// Not: geri sayım artık sunucudan gelen MUTLAK bir zaman damgasına
+// (nextAutoAt) göre çalışır — hem host hem misafir aynı saniyeyi görür.
+// İstemci burada hiçbir action GÖNDERMEZ; faz geçişlerini yalnızca
+// sunucu tetikler (bkz. RoomManager #scheduleAuto). onDone sadece
+// görsel bir kapanış efekti (varsa) için kullanılır.
+function clearAutoTimer(){
+  clearTimeout(autoTimer);clearInterval(countdownTick);autoTimer=null;
+}
+function countdownPct(){
+  if(!countdownEnd||!countdownTotal)return 100;
+  return Math.max(0,Math.round(((countdownEnd-Date.now())/countdownTotal)*100));
+}
+function startCountdown(endAt,onDone){
+  clearAutoTimer();
+  if(!endAt){
+    // Sunucudan henüz bir zamanlama gelmediyse (ör. çok erken bir render) —
+    // makul bir varsayılanla göster, bir sonraki STATE_UPDATE düzeltecek.
+    endAt=Date.now()+3000;
+  }
+  countdownEnd=endAt;countdownTotal=Math.max(1,endAt-Date.now());
+  countdownTick=setInterval(()=>{
+    const lbl=document.querySelector('#cd-lbl');
+    const fill=document.querySelector('#cd-fill');
+    if(lbl){
+      const sec=Math.max(0,Math.ceil((countdownEnd-Date.now())/1000));
+      if(currentState?.status==='auction'){
+        const isMyTurn=currentState.auction?.activeBidderId===myPlayerId;
+        lbl.textContent=isMyTurn?`${sec}sn içinde otomatik pas geçilir!`:`Rakip için ${sec}sn kaldı…`;
+      }
+      else if(currentState?.status==='round_result')lbl.textContent=`${sec}sn içinde devam ediyor…`;
+      else if(currentState?.status==='collection')lbl.textContent=readyPlayers.has(myPlayerId)?'Rakip bekleniyor…':`Hazır ol! ${sec}sn`;
+      else if(currentState?.status==='battle'){
+        // revealed sonrası yazı ve bar yok
+        if(!currentState.battle?.revealed)
+          lbl.textContent=`${sec}sn içinde savaşıyor…`;
+      }
+    }
+    if(fill)fill.style.width=countdownPct()+'%';
+    // Geri sayım sesleri: son 3 saniyede tık sesi
+    const secNow=Math.ceil((countdownEnd-Date.now())/1000);
+    if(secNow<=3&&secNow>0){
+      if(secNow<=1) SFX.tickFinal(); else SFX.tick();
+    }
+    if(Date.now()>=countdownEnd)clearInterval(countdownTick);
+  },250);
+  const msLeft=Math.max(0,endAt-Date.now());
+  autoTimer=setTimeout(()=>{clearInterval(countdownTick);onDone?.();},msLeft);
+}
+
+// ── Yardımcılar ───────────────────────────────────────────
+function menuBtnEl(icon,title,sub,cls,fn){
+  const b=el(`<button class="menu-btn ${cls}"><span class="menu-btn-icon">${icon}</span><span class="menu-btn-text"><div class="menu-btn-title">${title}</div><div class="menu-btn-sub">${sub}</div></span><span class="menu-btn-arrow">›</span></button>`);
+  b.addEventListener('click',()=>{ SFX.bid(); fn(); });return b;
+}
+function gridBtnEl(icon,title,sub,fn){
+  const b=el(`<button class="grid-btn"><div class="grid-btn-icon">${icon}</div><div class="grid-btn-title">${title}</div><div class="grid-btn-sub">${sub}</div></button>`);
+  b.addEventListener('click',fn);return b;
+}
+function statCardEl(val,lbl){return el(`<div class="stat-card"><div class="stat-val">${val}</div><div class="stat-lbl">${lbl}</div></div>`);}
+function backMenuBtn(txt='← Menüye Dön'){
+  const b=el(`<button class="btn-secondary" style="margin-top:4px">${txt}</button>`);
+  b.addEventListener('click',()=>{disconnectWs();lobbyMode=null;subScreen=null;screen='menu';render();});
+  return b;
+}
+function btnEl(txt,cls,fn){const b=el(`<button class="${cls}">${txt}</button>`);b.addEventListener('click',fn);return b;}
+
+// ── Kenar rafları ──────────────────────────────────────
+// Rafları state'den oluştur — render'da çağrılır, DOM'a doğrudan yazar
+function renderSideShelves(){
+  // Eskilerini temizle
+  document.querySelectorAll('.side-shelf').forEach(el=>el.remove());
+  if(!currentState) return;
+  const statuses = ['auction','free_choice','round_result','collection','battle'];
+  if(!statuses.includes(currentState.status)) return;
+
+  const isBattle = currentState.status === 'battle';
+  const b = currentState.battle;
+
+  // Tablet/masaüstünde raflar #app'in hemen yanında, kenar değil
+  const appEl = document.getElementById('app');
+  const appRect = appEl ? appEl.getBoundingClientRect() : null;
+
+  for(const pid of ['player1','player2']){
+    const p = currentState.players[pid];
+    if(!p.animals.length) continue;
+    const isLeft = pid==='player1';
+    const shelf = document.createElement('div');
+    shelf.className = 'side-shelf '+(isLeft?'left':'right');
+
+    // Tablet'te (app 480px'den geniş): rafı #app'in hemen yanına konumlandır
+    if(appRect && window.innerWidth >= 768){
+      if(isLeft){
+        shelf.style.left = Math.max(0, appRect.left - 64) + 'px';
+      } else {
+        shelf.style.right = Math.max(0, window.innerWidth - appRect.right - 64) + 'px';
+      }
+    }
+
+    p.animals.forEach((a, idx)=>{
+      const item = document.createElement('div');
+
+      // Battle modunda: bu hayvan mevcut veya geçmiş karşılaşmada mı?
+      let battleClass = '';
+      if(isBattle && b){
+        const matchForThisAnimal = b.matches.find(m=>m.matchIndex===idx);
+        if(matchForThisAnimal){
+          battleClass = matchForThisAnimal.winnerId===pid ? 'battle-win' : 'battle-lose';
+        } else if(b.matchIndex===idx && b.revealed && b.currentMatch){
+          battleClass = b.currentMatch.winnerId===pid ? 'battle-win' : 'battle-lose';
+        }
+      }
+
+      item.className = 'side-animal'+( battleClass?' '+battleClass:'');
+      item.innerHTML = isLeft
+        ? `<span class="sa-emoji">${a.emoji}</span><span class="sa-count">×${a.quantity}</span>`
+        : `<span class="sa-count">×${a.quantity}</span><span class="sa-emoji">${a.emoji}</span>`;
+      shelf.appendChild(item);
+    });
+    document.body.appendChild(shelf);
+  }
+}
+
+// ── Hayvan uçuş animasyonu ─────────────────────────────
+function flyAnimalToShelf(emoji, quantity, winnerId){
+  // Başlangıç: ekranın ortası (hayvanın göründüğü yer)
+  const animalEl = document.querySelector('.a-emoji');
+  let startX, startY;
+  if(animalEl){
+    const r = animalEl.getBoundingClientRect();
+    startX = r.left + r.width/2;
+    startY = r.top  + r.height/2;
+  } else {
+    startX = window.innerWidth/2;
+    startY = window.innerHeight/2;
+  }
+
+  // Hedef: o oyuncunun kenar rafı
+  const isLeft = winnerId==='player1';
+  const endX   = isLeft ? 20 : window.innerWidth - 60;
+  const endY   = window.innerHeight/2;
+
+  // Uçan emoji
+  const flyer = document.createElement('div');
+  flyer.className = 'flying-animal';
+  flyer.textContent = emoji;
+  flyer.style.cssText = `
+    left:${startX}px; top:${startY}px;
+    transform:translate(-50%,-50%) scale(1);
+    opacity:1;
+    transition:left 2s cubic-bezier(.25,.46,.45,.94),
+               top 2s cubic-bezier(.25,.46,.45,.94),
+               transform 2s ease,
+               opacity 2s ease;
+  `;
+  document.body.appendChild(flyer);
+
+  // round_result ekranındaki emoji konumunu dene (daha doğru başlangıç)
+  const roundEmoji = document.querySelector('.a-emoji, .animal-big .a-emoji');
+  if(roundEmoji && !animalEl){
+    const re = roundEmoji.getBoundingClientRect();
+    startX = re.left + re.width/2;
+    startY = re.top  + re.height/2;
+    flyer.style.left = startX+'px';
+    flyer.style.top  = startY+'px';
+  }
+
+  // Bir frame sonra hedefe fırlat
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    flyer.style.left = endX+'px';
+    flyer.style.top  = endY+'px';
+    flyer.style.transform = 'translate(-50%,-50%) scale(0.6)';
+    flyer.style.opacity = '0';
+  }));
+
+  // 2.1 saniye sonra kaldır
+  setTimeout(()=>flyer.remove(), 2200);
+}
+function el(html){const d=document.createElement('div');d.innerHTML=html;return d.firstElementChild;}
+
+// ── Konfeti ───────────────────────────────────────────────
+function launchConfetti(count=60){
+  const colors=['#4f7cff','#4fd671','#e8c14f','#e85f5f','#b07be8','#e8823d'];
+  for(let i=0;i<count;i++){
+    const piece=document.createElement('div');
+    piece.className='confetti-piece';
+    piece.style.cssText=`
+      left:${Math.random()*100}vw;
+      top:-20px;
+      background:${colors[Math.floor(Math.random()*colors.length)]};
+      width:${6+Math.random()*8}px;
+      height:${6+Math.random()*8}px;
+      border-radius:${Math.random()>0.5?'50%':'2px'};
+      animation-duration:${1.5+Math.random()*2}s;
+      animation-delay:${Math.random()*0.8}s;
+    `;
+    document.body.appendChild(piece);
+    piece.addEventListener('animationend',()=>piece.remove());
+  }
+}
+
+// ── Ses butonu (header'a eklenecek) ─────────────────────
+function muteBtn(){
+  const b=el(`<div class="icon-btn" id="btn-mute" title="${_muted?'Sesi Aç':'Sesi Kapat'}">${_muted?'🔇':'🔊'}</div>`);
+  b.addEventListener('click',()=>{ const m=toggleMute(); b.textContent=m?'🔇':'🔊'; b.title=m?'Sesi Aç':'Sesi Kapat'; });
+  return b;
+}
+function esc(s){const d=document.createElement('div');d.textContent=s??'';return d.innerHTML;}
+function showErr(msg){errorMsg=msg;successMsg=null;render();setTimeout(()=>{errorMsg=null;render();},3500);}
+function showToast(msg,ok=false){if(ok){successMsg=msg;errorMsg=null;}else{errorMsg=msg;successMsg=null;}render();setTimeout(()=>{successMsg=null;errorMsg=null;render();},3000);}
+function friendlyErr(msg){
+  if(!msg)return'Bir hata oluştu.';
+  if(msg.includes('already registered'))return'Bu e-posta zaten kayıtlı.';
+  if(msg.includes('Invalid login'))return'E-posta veya şifre yanlış.';
+  if(msg.includes('Password'))return'Şifre en az 6 karakter.';
+  return msg;
+}
+function relativeTime(iso){
+  const diff=(Date.now()-new Date(iso).getTime())/1000;
+  if(diff<60)return'Az önce';
+  if(diff<3600)return Math.floor(diff/60)+' dk önce';
+  if(diff<86400)return Math.floor(diff/3600)+' sa önce';
+  return Math.floor(diff/86400)+' gün önce';
+}
+
+// ── Başlangıç ─────────────────────────────────────────────
+async function loadProfile(){
+  if(!authToken){screen='auth';render();return;}
+  try{
+    // 1. JWT'den authUser'ı al — getProfile buna bağımlı
+    const parts=authToken.split('.');
+    if(parts.length===3){
+      const payload=JSON.parse(atob(parts[1].replace(/-/g,'+').replace(/_/g,'/')));
+      authUser={id:payload.sub,email:payload.email};
+    }
+    if(!authUser?.id)throw new Error('Token geçersiz');
+
+    // 2. Profili çek — trigger gecikmesi için 3 kez dene
+    let tries=0;
+    while(!profile && tries<3){
+      profile=await sb.getProfile(authToken);
+      if(!profile){ tries++; await new Promise(r=>setTimeout(r,800)); }
+    }
+
+    // 3. Hâlâ yoksa manuel oluştur (trigger çalışmamış olabilir)
+    if(!profile){
+      const username=authUser.email.split('@')[0].replace(/[^a-z0-9_]/gi,'').slice(0,20)||'oyuncu';
+      await fetch(`${SUPABASE_URL}/rest/v1/profiles`,{
+        method:'POST',
+        headers:{
+          'apikey':SUPABASE_ANON,
+          'Authorization':`Bearer ${authToken}`,
+          'Content-Type':'application/json',
+          'Prefer':'return=minimal',
+        },
+        body:JSON.stringify({id:authUser.id,username})
+      });
+      profile=await sb.getProfile(authToken);
+    }
+
+    if(!profile)throw new Error('Profil oluşturulamadı');
+
+    friends=await sb.getFriends(authToken);
+    const notifs=await sb.getNotifications(authToken);
+    unreadCount=notifs.filter(n=>!n.read).length;
+    cachedNotifs=notifs;
+    seenNotifIds=new Set(notifs.map(n=>n.id));   // mevcut bildirimler için toast basma
+    startPresenceHeartbeat();
+    screen='menu';render();
+  }catch(e){
+    console.error('loadProfile hata:',e);
+    // Token süresi dolmuşsa sil, yoksa auth ekranına at ama token'ı koru
+    if(e.message==='Token geçersiz'){
+      authToken=null;localStorage.removeItem('vm_token');
+    }
+    screen='auth';render();
+  }
+}
+
+screen='loading';render();
+loadProfile();
+
+// ── Double-tap zoom koruması (accessibility-friendly) ────────────────
+// user-scalable=no yerine: yalnızca interaktif elemanlarda (button, input)
+// çift-dokunmayı engelle. Okuma alanlarında pinch-zoom serbest kalır
+// (WCAG 1.4.4 uyumlu).
+(()=>{
+  let lastTap=0;
+  document.addEventListener('touchend',(e)=>{
+    const now=Date.now();
+    const dt=now-lastTap;
+    if(dt<350 && dt>0 && e.target.closest('button,input,select,.menu-btn,.grid-btn,.tab-item')){
+      e.preventDefault();
+    }
+    lastTap=now;
+  },{passive:false});
+})();
+
+// Ekran boyutu değişince rafları yeniden çiz
+window.addEventListener('resize', ()=>{
+  if(currentState && ['auction','free_choice','round_result','collection'].includes(currentState.status)){
+    renderSideShelves();
+  }
+});
+
+// ── Klavye layout kayması koruması (iOS Safari + Android Chrome) ──
+// visualViewport: klavye açılınca küçülen gerçek görünüm alanı.
+// Aktif input element görünür alanda kalmazsa scroll ile düzelt.
+// Bu olmadan iOS Safari'de teklif input'u klavye altında gizlenebilir.
+if(window.visualViewport){
+  let _vpKeyboardOpen = false;
+  window.visualViewport.addEventListener('resize', ()=>{
+    const ratio = window.visualViewport.height / window.innerHeight;
+    const keyboardOpen = ratio < 0.75; // %75'ten az → klavye açık
+    if(keyboardOpen && !_vpKeyboardOpen){
+      _vpKeyboardOpen = true;
+      // Aktif element varsa görünür kıl
+      const active = document.activeElement;
+      if(active && active.tagName === 'INPUT'){
+        setTimeout(()=>active.scrollIntoView({behavior:'smooth',block:'center'}), 150);
+      }
+    } else if(!keyboardOpen){
+      _vpKeyboardOpen = false;
+    }
+  });
+}
+
+// Bildirimleri otomatik/anlık düşürmek için periyodik yoklama (5sn)
+setInterval(pollNotifications, 5000);
+
+// Aktif düello davetini periyodik kontrol et
+setInterval(async()=>{
+  if(!authToken||!activeDuelInvite)return;
+  try{
+    const inv=await sb.getDuelInvite(authToken,activeDuelInvite.id);
+    if(!inv)return;
+    if(inv.status==='accepted'&&inv.lobby_code){
+      // Kabul edildi → lobiye git
+      activeDuelInvite=null;
+      clearTimeout(duelWaitTimer);
+      clearInterval(duelCountdown);
+      isPrivateLobby=false;  // lobby_code ile katılıyoruz, private değil
+      subScreen='lobby'; lobbyMode='waiting';
+      startGame(inv.lobby_code);
+    } else if(inv.status==='declined'){
+      activeDuelInvite=null;
+      clearTimeout(duelWaitTimer);
+      clearInterval(duelCountdown);
+      showToast(inv.receiver_name||'Rakip'+ ' düello davetini reddetti.',false);
+      subScreen=null; render();
+    } else if(inv.status==='expired'||inv.status==='cancelled'){
+      activeDuelInvite=null;
+      if(subScreen==='duel-wait'){subScreen=null;render();}
+    }
+  }catch{}
+},3000);
+</script>
+</body>
+</html>
