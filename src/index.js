@@ -25,6 +25,15 @@ const httpServer = createServer((req, res) => {
   }
 
   if (url.pathname === '/stats') {
+    const statsToken = process.env.STATS_TOKEN;
+    if (statsToken) {
+      const auth = req.headers['authorization'] ?? '';
+      if (auth !== `Bearer ${statsToken}`) {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized' }));
+        return;
+      }
+    }
     const stats = rooms?.stats() ?? {};
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(stats));
