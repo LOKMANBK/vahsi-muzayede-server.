@@ -33,26 +33,27 @@
 //  redis.js in-memory stub + process-içi event bus kullanır,
 //  davranış eskisiyle birebir aynı kalır.
 //
-//  3 KİŞİLİK MOD DESTEĞİ (yeni)
+//  3 VE 4 KİŞİLİK MOD DESTEĞİ
 //  ────────────────────────────────────────────────────────
-//  Her oda artık bir `playerCount` (2 veya 3) taşır ve buna göre
-//  ya `GameEngine` (2 kişilik, değişmedi) ya da `GameEngine3P`
-//  (3 kişilik, ayrı motor) örneği kullanır. Slot sayısı, hazır-
+//  Her oda artık bir `playerCount` (2, 3 veya 4) taşır ve buna göre
+//  `GameEngine` (2 kişilik), `GameEngine3P` ya da `GameEngine4P` örneği
+//  kullanır — bkz. engineClassFor/applyActionFor. Slot sayısı, hazır-
 //  olma haritaları, rövanş ve persist mantığı `room.slots`'un
 //  anahtarlarına göre GENEL hâle getirildi — artık hardcoded
-//  'player1'/'player2' çiftine bağlı değil, playerCount 2 veya 3
+//  'player1'/'player2' çiftine bağlı değil, playerCount 2, 3 veya 4
 //  olsun fark etmez aynı kod yolundan geçer.
 //
-//  Bot eşleştirme sistemi YALNIZCA 2 kişilik modda çalışır
-//  (3 kişilik modda oda üçüncü oyuncu gelene kadar süresiz
-//  bekler — Kural 54, 3_kisilik_mod_kurallari.md v4).
+//  Bot eşleştirme sistemi YALNIZCA 2 kişilik modda çalışır (3P/4P'de
+//  oda son oyuncu gelene kadar süresiz bekler — 3P Kural 54, 4P Kural 52).
 // =========================================================
 
 import { randomBytes }               from 'crypto';
 import { GameEngine }                from '../game/GameEngine.js';
 import { GameEngine3P }              from '../game/GameEngine3P.js';
+import { GameEngine4P }              from '../game/GameEngine4P.js';
 import { applyAction, ACTION_TYPES } from '../game/actions.js';
 import { applyAction3P }             from '../game/actions3P.js';
+import { applyAction4P }             from '../game/actions4P.js';
 import { STATUS }                    from '../game/GameState.js';
 import {
   saveRoomRecord, loadRoomRecord, deleteRoomRecord,
@@ -105,9 +106,44 @@ function slotPresent(slot) {
   return !!slot?.name && slot.awayAt == null;
 }
 
-/** playerCount'a göre slot ID listesi üretir. Yalnızca 2 veya 3 desteklenir. */
+/** playerCount'a göre slot ID listesi üretir. 2, 3 veya 4 desteklenir. */
 function playerIdsFor(playerCount) {
-  return playerCount === 3 ? ['player1', 'player2', 'player3'] : ['player1', 'player2'];
+  if (playerCount === 4) return ['player1', 'player2', 'player3', 'player4'];
+  if (playerCount === 3) return ['player1', 'player2', 'player3'];
+  return ['player1', 'player2'];
+}
+
+/**
+ * playerCount'a göre doğru GameEngine sınıfını döndürür. Önceden bu seçim
+ * `playerCount === 3 ? GameEngine3P : GameEngine` gibi tekrarlanan üçlü
+ * ifadelerle her çağrı noktasında ayrı ayrı yazılıyordu — 4P eklerken bu
+ * üçlülerin HER BİRİNİ bulup güncellemek gerekiyordu ve biri unutulursa
+ * (sessizce 2 kişilik motora düşme riski) fark edilmesi zor bir hataya
+ * yol açardı. Tek bir seçici fonksiyonda toplamak, ileride 5. bir mod
+ * eklenirse de tek satırlık bir değişikliği yeterli kılar.
+ */
+function engineClassFor(playerCount) {
+  if (playerCount === 4) return GameEngine4P;
+  if (playerCount === 3) return GameEngine3P;
+  return GameEngine;
+}
+
+/** playerCount'a göre doğru applyAction fonksiyonunu döndürür (bkz. engineClassFor). */
+function applyActionFor(playerCount) {
+  if (playerCount === 4) return applyAction4P;
+  if (playerCount === 3) return applyAction3P;
+  return applyAction;
+}
+
+/**
+ * playerCount'a göre analytics event adı üretir. 2 kişilik modda geriye
+ * dönük uyum için ek son ek YOKTUR (mevcut dashboard'lar/sorgular bu ismi
+ * bekliyor); 3P ve 4P kendi son eklerini kullanır.
+ */
+function analyticsEventName(playerCount, baseName) {
+  if (playerCount === 4) return `${baseName}_4p`;
+  if (playerCount === 3) return `${baseName}_3p`;
+  return baseName;
 }
 
 export class RoomManager {
@@ -142,9 +178,9 @@ export class RoomManager {
   }
 
   async connect(ws, opts = {}) {
-    // 3 kişilik mod isteği geçerli mi? wsServer.js JOIN mesajından
+    // 3 veya 4 kişilik mod isteği geçerli mi? wsServer.js JOIN mesajından
     // `playerCount` alanını buraya geçirmelidir; geçersiz/eksikse 2'ye düşer.
-    const requestedPlayerCount = [2, 3].includes(opts.playerCount) ? opts.playerCount : 2;
+    const requestedPlayerCount = [2, 3, 4].includes(opts.playerCount) ? opts.playerCount : 2;
 
     let room, playerId, reconnectToken;
 
@@ -487,7 +523,7 @@ export class RoomManager {
   }
 
   /**
-   * Lobi: TÜM oyuncular (2 veya 3, room.playerCount'a göre) "Hazırım"
+   * Lobi: TÜM oyuncular (2, 3 veya 4, room.playerCount'a göre) "Hazırım"
    * dedikten sonra LOBBY_COUNTDOWN_MS'lik senkronize bir geri sayım başlar;
    * süre bitince sunucu maçı başlatır.
    */
@@ -536,7 +572,7 @@ export class RoomManager {
           // Analytics: oyun başlangıcı
           const presence = {};
           Object.keys(fresh.slots).forEach((id) => { presence[`has_${id}`] = !!fresh.slots[id].userId; });
-          capture(fresh.playerCount === 3 ? 'game_started_3p' : 'game_started', {
+          capture(analyticsEventName(fresh.playerCount, 'game_started'), {
             gameId:      fresh.gameId,
             isPrivate:   fresh.private,
             playerCount: fresh.playerCount,
@@ -569,16 +605,31 @@ export class RoomManager {
 
   /**
    * Collection fazında (maç ortasında, savaş öncesi) "Hazırım".
-   * TÜM oyuncular (2 veya 3) hazır olunca savaş fazı başlar.
+   * TÜM oyuncular (2, 3 veya 4) hazır olunca savaş fazı başlar.
    */
   async #handleCollectionReady(room, playerId) {
-    const gameId = room.gameId;
     const state = room.engine.getState();
     if (state.status !== STATUS.COLLECTION) return;
 
     room.collectionReady[playerId] = true;
     await this.#persistRoom(room);
     await this.#broadcastReady(room);
+
+    await this.#tryStartBattleIfAllReady(room);
+  }
+
+  /**
+   * TÜM oyuncular (forfeited olanlar #makeReadyMap/#forfeit tarafından
+   * zaten otomatik hazır sayılır — Kural 33) hazır olduğunda savaş fazını
+   * başlatır. Hem normal "Hazırım" akışından (#handleCollectionReady) hem
+   * de bir oyuncu tam da COLLECTION'da beklerken forfeit olup son eksik
+   * "hazır" onu olduğunda (#forfeit) çağrılır — iki çağrı noktası da aynı
+   * mantığı tekrarlamasın diye buraya çıkarıldı.
+   */
+  async #tryStartBattleIfAllReady(room) {
+    const gameId = room.gameId;
+    const state = room.engine.getState();
+    if (state.status !== STATUS.COLLECTION) return;
 
     const allReady = Object.values(room.collectionReady).every(Boolean);
     if (!allReady) return;
@@ -610,22 +661,43 @@ export class RoomManager {
     await this.#broadcast(room, null, null, { type: 'READY_UPDATE', ready: { ...room.collectionReady } });
   }
 
-  /** room.slots'un anahtarlarına göre { player1:false, player2:false[, player3:false] } üretir. */
+  /**
+   * room.slots'un anahtarlarına göre { player1:false, player2:false, ... }
+   * hazır-olma haritası üretir.
+   *
+   * KURAL 33 DÜZELTMESİ (4P dokümanında "zorunlu" işaretlenmiş, 3P kodundan
+   * miras bir kilitlenme riskiydi — burada da düzeltildi): forfeited
+   * (ayrılmış) bir oyuncu artık asla bağlanamayacağı için READY/Hazırım
+   * mesajı GÖNDEREMEZ. Bu haritayı forfeited oyuncular için de `false` ile
+   * başlatmak, hazır-olma sayımının (lobi ya da collection fazı)
+   * SONSUZA KADAR tamamlanamaması anlamına gelirdi — oyun kilitlenirdi.
+   * Bu yüzden forfeited oyuncular haritada baştan `true` (otomatik hazır)
+   * sayılır; `allReady = ids.every(id => map[id])` / `Object.values(map)
+   * .every(Boolean)` kontrolleri hiçbir çağrı noktasında değişmeden doğru
+   * çalışmaya devam eder, çünkü forfeited oyuncu zaten "hazır" görünür.
+   *
+   * NOT: Bu yalnızca haritanın YENİDEN oluşturulduğu anı (oda kuruluşu,
+   * collection fazına yeni giriş) kapsar. Bir oyuncu haritanın halihazırda
+   * var olduğu bir anda forfeit olursa (ör. tam da COLLECTION'da beklerken
+   * bağlantısı kopup pencere dolarsa), mevcut haritayı da güncellemek
+   * gerekir — bu ikinci durum #forfeit içinde ayrıca ele alınır.
+   */
   #makeReadyMap(room) {
-    return Object.fromEntries(Object.keys(room.slots).map((id) => [id, false]));
+    const state = room.engine?.getState?.();
+    return Object.fromEntries(
+      Object.keys(room.slots).map((id) => [id, !!state?.players?.[id]?.forfeited])
+    );
   }
 
   /**
-   * Action'ı doğru motora yönlendirir: room.playerCount===3 ise GameEngine3P
-   * (applyAction3P), aksi hâlde mevcut 2 kişilik GameEngine (applyAction).
-   * ACTION_TYPES sabitlerinin string değerleri iki motorda da birebir aynı
-   * olduğundan (bkz. actions.js / actions3P.js), çağıran kod tek bir
-   * ACTION_TYPES setiyle yazılabilir — yalnızca apply fonksiyonu değişir.
+   * Action'ı doğru motora yönlendirir (bkz. applyActionFor). ACTION_TYPES
+   * sabitlerinin string değerleri üç motorda da (2P/3P/4P) birebir aynı
+   * olduğundan (bkz. actions.js / actions3P.js / actions4P.js), çağıran kod
+   * tek bir ACTION_TYPES setiyle yazılabilir — yalnızca apply fonksiyonu
+   * playerCount'a göre değişir.
    */
   #applyToEngine(room, action) {
-    return room.playerCount === 3
-      ? applyAction3P(room.engine, action)
-      : applyAction(room.engine, action);
+    return applyActionFor(room.playerCount)(room.engine, action);
   }
 
   // ── Bot Eşleştirme (yalnızca 2 kişilik mod) ───────────────
@@ -972,10 +1044,12 @@ export class RoomManager {
 
   /**
    * Maç bitince sunucu tarafında Supabase'e istatistik yazar. Güvenli:
-   * client'a güvenmez, kendi hesaplar. 3 kişilik odalar #saveMatchStats3P'ye
-   * yönlendirilir (ayrı tablo, ayrı ödül şeması — bkz. o metodun yorumu).
+   * client'a güvenmez, kendi hesaplar. 3/4 kişilik odalar sırasıyla
+   * #saveMatchStats3P / #saveMatchStats4P'ye yönlendirilir (ayrı tablo,
+   * ayrı ödül şeması — bkz. o metotların yorumu).
    */
   async #saveMatchStats(room) {
+    if (room.playerCount === 4) return this.#saveMatchStats4P(room);
     if (room.playerCount === 3) return this.#saveMatchStats3P(room);
 
     const SUPABASE_URL        = process.env.SUPABASE_URL;
@@ -1181,6 +1255,113 @@ export class RoomManager {
     });
   }
 
+  /**
+   * 4 kişilik mod istatistik kaydı — ayrı tablo (match_history_4p),
+   * final sıralamasına (Kural 47-51) dayalı XP ödülü (Kural 50).
+   *
+   * NOT: 3P'de olduğu gibi 4P için de MMR (ELO) formülü henüz
+   * tanımlanmadı — bu sürümde mmr_change hesaplanmaz, yalnızca XP ve
+   * wins/losses güncellenir (Kural 51: yalnızca 1. sıradaki "win",
+   * diğer 3'ü "loss" sayılır — basit bir varsayımdır, istersen sonra
+   * "top-2 win" gibi bir modele genişletilebilir).
+   *
+   * match_history_4p tablosu henüz migration dosyasında tanımlı değil —
+   * bu metodun çalışması için önce Supabase'e eklenmesi gerekir (bkz.
+   * sohbette paylaşılan CREATE TABLE SQL'i).
+   */
+  async #saveMatchStats4P(room) {
+    const SUPABASE_URL         = process.env.SUPABASE_URL;
+    const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+      logger.warn('Supabase env eksik — 4p stats kaydedilmiyor');
+      return;
+    }
+
+    const state   = room.engine.getState();
+    const ranking = room.engine.getFinalRanking(); // [1., 2., 3., 4. sıradaki playerId]
+    const scores  = state.battle?.scores ?? {};
+
+    const slots = {
+      player1: room.slots.player1, player2: room.slots.player2,
+      player3: room.slots.player3, player4: room.slots.player4,
+    };
+    const anyUser = Object.values(slots).some((s) => s?.userId);
+    if (!anyUser) return;
+
+    const headers = {
+      'Content-Type':  'application/json',
+      'apikey':        SUPABASE_SERVICE_KEY,
+      'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}`,
+      'Prefer':        'return=minimal',
+    };
+
+    const fetchProfile = async (uid) => {
+      if (!uid) return null;
+      const r = await fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${uid}&limit=1`, {
+        headers: { 'apikey': SUPABASE_SERVICE_KEY, 'Authorization': `Bearer ${SUPABASE_SERVICE_KEY}` },
+      });
+      const d = await r.json();
+      return Array.isArray(d) && d.length ? d[0] : null;
+    };
+
+    const profiles = {};
+    for (const pid of Object.keys(slots)) {
+      profiles[pid] = await fetchProfile(slots[pid]?.userId);
+    }
+
+    const XP_BY_RANK = { 0: 100, 1: 70, 2: 40, 3: 20 }; // Kural 50
+
+    const updates = ranking.map((pid, idx) => {
+      const profile = profiles[pid];
+      if (!slots[pid]?.userId || !profile) return null;
+      const xp     = (profile.xp ?? 0)     + XP_BY_RANK[idx];
+      const wins   = (profile.wins ?? 0)   + (idx === 0 ? 1 : 0); // Kural 51
+      const losses = (profile.losses ?? 0) + (idx === 0 ? 0 : 1);
+      const level  = Math.max(1, Math.floor(xp / 500) + 1);
+      return fetch(`${SUPABASE_URL}/rest/v1/profiles?id=eq.${slots[pid].userId}`, {
+        method: 'PATCH', headers, body: JSON.stringify({ xp, wins, losses, level }),
+      });
+    }).filter(Boolean);
+
+    await Promise.all(updates);
+
+    if (anyUser) {
+      await fetch(`${SUPABASE_URL}/rest/v1/match_history_4p`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          room_id:           room.gameId,
+          player1_id:        slots.player1?.userId ?? null,
+          player2_id:        slots.player2?.userId ?? null,
+          player3_id:        slots.player3?.userId ?? null,
+          player4_id:        slots.player4?.userId ?? null,
+          rank1_player_id:   slots[ranking[0]]?.userId ?? null,
+          rank2_player_id:   slots[ranking[1]]?.userId ?? null,
+          rank3_player_id:   slots[ranking[2]]?.userId ?? null,
+          rank4_player_id:   slots[ranking[3]]?.userId ?? null,
+          p1_score:          scores.player1 ?? 0,
+          p2_score:          scores.player2 ?? 0,
+          p3_score:          scores.player3 ?? 0,
+          p4_score:          scores.player4 ?? 0,
+          match_ended_early: !!state.matchEndedEarly,
+        }),
+      });
+    }
+
+    logger.info('4P Match stats kaydedildi', { gameId: room.gameId, ranking, matchEndedEarly: state.matchEndedEarly });
+
+    capture('game_finished_4p', {
+      gameId:          room.gameId,
+      ranking,
+      p1Score:         scores.player1 ?? 0,
+      p2Score:         scores.player2 ?? 0,
+      p3Score:         scores.player3 ?? 0,
+      p4Score:         scores.player4 ?? 0,
+      matchEndedEarly: !!state.matchEndedEarly,
+      isPrivate:       room.private,
+    });
+  }
+
   #clearFinishTimer(gameId) {
     const timer = this.#finishTimers.get(gameId);
     if (timer) {
@@ -1243,8 +1424,15 @@ export class RoomManager {
 
       room.status          = 'playing';
       room.rematch         = { requestedBy: null };
+      // ÖNEMLİ SIRALAMA: engine ÖNCE sıfırlanmalı, collectionReady SONRA
+      // hesaplanmalı. #makeReadyMap artık (Kural 33) room.engine.getState()
+      // üzerinden forfeited durumuna bakıyor — sıra ters olsaydı, ESKİ
+      // (bitmiş) maçta forfeited olan bir oyuncu, henüz sıfırlanmamış eski
+      // motordan okunan forfeited=true bayrağı yüzünden YENİ maçın hazır-
+      // olma haritasına yanlışlıkla "otomatik hazır" olarak taşınırdı —
+      // oysa taze motorda (makeInitialState) herkes forfeited:false başlar.
+      room.engine          = new (engineClassFor(room.playerCount))();
       room.collectionReady = this.#makeReadyMap(room);
-      room.engine          = room.playerCount === 3 ? new GameEngine3P() : new GameEngine();
       const result = room.engine.startGame(names);
       this.#scheduleAuto(room);
 
@@ -1267,12 +1455,12 @@ export class RoomManager {
     });
   }
 
-  // ── Forfeit: kopan oyuncu kaybeder (2p) / ayrılmış sayılır (3p) ──────
+  // ── Forfeit: kopan oyuncu kaybeder (2p) / ayrılmış sayılır (3p/4p) ────
   //
   // 2 kişilik modda forfeit = maç anında biter (tek rakip zaten galip).
-  // 3 kişilik modda forfeit = GameEngine3P.markForfeited() çağrılır;
+  // 3/4 kişilik modda forfeit = GameEngine3P/4P.markForfeited() çağrılır;
   // oyun Kural 39 gereği kalan oyuncularla DEVAM EDER, yalnızca ayrılmamış
-  // oyuncu sayısı 1'e düşerse (Kural 14 / A3) maç biter.
+  // oyuncu sayısı 1'e düşerse (Kural 14) maç biter.
   async #forfeit(room, disconnectedPlayerId) {
     await withRoomLock(room.gameId, async () => {
       const fresh = await this.#getOrRestoreRoom(room.gameId).catch(() => null);
@@ -1280,34 +1468,73 @@ export class RoomManager {
       // Bu arada geri bağlanmış olabilir — hâlâ away mi kontrol et.
       if (fresh.slots[disconnectedPlayerId]?.awayAt == null) return;
 
-      if (fresh.playerCount === 3) {
+      if (fresh.playerCount >= 3) {
         const result = fresh.engine.markForfeited(disconnectedPlayerId);
         if (!result.ok) return; // zaten ayrılmış vs.
 
         const newState = fresh.engine.getState();
-        logger.info('3P Forfeit', {
+        logger.info(fresh.playerCount === 4 ? '4P Forfeit' : '3P Forfeit', {
           gameId: fresh.gameId, playerId: disconnectedPlayerId,
           matchEndedEarly: !!result.event.matchEndedEarly,
+          freeChoiceAutoResolved: !!result.event.freeChoiceAutoResolved,
         });
+
+        // KURAL 33 DÜZELTMESİ — forfeit anında lobi/collection hazır-olma
+        // haritaları ZATEN oluşturulmuş olabilir (ör. oyuncu tam da
+        // COLLECTION fazında beklerken bağlantısı koptu ve reconnect
+        // penceresi doldu). #makeReadyMap yalnızca haritanın YENİDEN
+        // kurulduğu anı (oda kuruluşu / COLLECTION'a yeni giriş) kapsar;
+        // burada var olan haritayı da güncelleyip forfeited oyuncuyu
+        // "hazır" işaretlememiz gerekir — aksi hâlde onun READY mesajını
+        // sonsuza kadar bekleyip kilitlenir.
+        if (fresh.collectionReady && disconnectedPlayerId in fresh.collectionReady) {
+          fresh.collectionReady[disconnectedPlayerId] = true;
+        }
+        if (fresh.lobbyReady && disconnectedPlayerId in fresh.lobbyReady) {
+          fresh.lobbyReady[disconnectedPlayerId] = true;
+        }
+
+        if (result.event.matchEndedEarly || newState.status === STATUS.FINAL) {
+          // Kural 14 — ayrılmamış oyuncu sayısı 1'e düştü, maç bitti.
+          this.#clearAutoTimer(fresh.gameId);
+          this.#enterFinished(fresh);
+          await this.#persistRoom(fresh);
+          await this.#broadcast(fresh, newState, result.event);
+          return;
+        }
 
         await this.#persistRoom(fresh);
         await this.#broadcast(fresh, newState, result.event);
 
-        if (result.event.matchEndedEarly || newState.status === STATUS.FINAL) {
-          // Kural 14 (A3) — ayrılmamış oyuncu sayısı 1'e düştü, maç bitti.
-          this.#clearAutoTimer(fresh.gameId);
-          this.#enterFinished(fresh);
-          await this.#persistRoom(fresh);
-          return;
+        // Oyun devam ediyor (Kural 39). Üç ayrı devam senaryosu:
+        //
+        // 1) Kural 37-B — FREE_CHOICE decider'ı forfeit oldu ve engine
+        //    otomatik olarak ROUND_RESULT'a çözdü. Bu geçiş normal bir
+        //    action'dan (handleAction) DEĞİL buradan geldiği için, o yolun
+        //    her zaman yaptığı #scheduleAuto çağrısı EKSİKTİ — eklenmezse
+        //    ROUND_RESULT ekranı hiç otomatik ilerlemez, oyun burada
+        //    kilitlenirdi (Kural 37-B'nin engine tarafındaki çözümü tek
+        //    başına yeterli değildi, sunucu tarafında da tamamlanması
+        //    gerekiyordu).
+        if (result.event.freeChoiceAutoResolved) {
+          this.#scheduleAuto(fresh);
         }
 
-        // Oyun devam ediyor (Kural 39). Emniyet: forfeit anında tam da
-        // sırası gelen (activeBidderId) kişi ayrılan oyuncuysa — normalde
-        // bid-timeout (10sn) reconnect penceresinden (20sn) önce zaten
-        // devreye girip sırayı ilerletmiş olur, ama garanti olsun diye
-        // burada da kontrol ediyoruz (nested lock'a girmeden).
+        // 2) Emniyet: forfeit anında tam da sırası gelen (activeBidderId)
+        //    kişi ayrılan oyuncuysa — normalde bid-timeout reconnect
+        //    penceresinden önce zaten devreye girip sırayı ilerletmiş
+        //    olur, ama garanti olsun diye burada da kontrol ediyoruz
+        //    (nested lock'a girmeden).
         if (newState.status === STATUS.AUCTION && newState.auction?.activeBidderId === disconnectedPlayerId) {
           await this.#forcePassInsideLock(fresh, disconnectedPlayerId);
+        }
+
+        // 3) Kural 33 — forfeit, tam da COLLECTION fazında beklerken
+        //    oldu ve bu oyuncu son eksik "hazır" oyuysa, savaş fazını
+        //    şimdi başlat (aksi hâlde kalanlar onun asla gönderemeyeceği
+        //    bir READY'yi beklemeye devam ederdi).
+        if (newState.status === STATUS.COLLECTION) {
+          await this.#tryStartBattleIfAllReady(fresh);
         }
         return;
       }
@@ -1332,7 +1559,7 @@ export class RoomManager {
 
   /**
    * @param {boolean} isPrivate
-   * @param {2|3} playerCount — varsayılan 2 (geriye dönük uyum)
+   * @param {2|3|4} playerCount — varsayılan 2 (geriye dönük uyum)
    */
   #createRoom(isPrivate = false, playerCount = 2) {
     const gameId = Math.random().toString(36).slice(2, 8).toUpperCase();
@@ -1348,7 +1575,7 @@ export class RoomManager {
       private: isPrivate,
       playerCount,
       status: 'waiting',
-      engine: playerCount === 3 ? new GameEngine3P() : new GameEngine(),
+      engine: new (engineClassFor(playerCount))(),
       collectionReady: Object.fromEntries(ids.map((id) => [id, false])),
       lobbyReady:      Object.fromEntries(ids.map((id) => [id, false])),
       lobbyCountdownTimer: null,
@@ -1378,7 +1605,8 @@ export class RoomManager {
 
     if (!local) {
       // Bu instance'ta hiç yok — Redis kaydından yeni bir yerel gölge oluştur.
-      const playerCount = record.playerCount === 3 ? 3 : 2; // geriye dönük uyum: eski kayıtlarda alan yok → 2
+      const playerCount = [3, 4].includes(record.playerCount) ? record.playerCount : 2; // geriye dönük uyum: eski kayıtlarda alan yok → 2
+      const EngineClass = engineClassFor(playerCount);
       const ids   = Object.keys(record.slots);
       const slots = {};
       ids.forEach((pid) => { slots[pid] = { ws: null, reconnectTimer: null, ...record.slots[pid] }; });
@@ -1388,9 +1616,7 @@ export class RoomManager {
         private: !!record.private,
         playerCount,
         status:  record.status,
-        engine:  record.engineState
-          ? (playerCount === 3 ? GameEngine3P.fromState(record.engineState) : GameEngine.fromState(record.engineState))
-          : (playerCount === 3 ? new GameEngine3P() : new GameEngine()),
+        engine:  record.engineState ? EngineClass.fromState(record.engineState) : new EngineClass(),
         collectionReady: record.collectionReady ?? Object.fromEntries(ids.map((id) => [id, false])),
         lobbyReady:      record.lobbyReady ?? Object.fromEntries(ids.map((id) => [id, false])),
         lobbyCountdownTimer: null,
@@ -1422,14 +1648,12 @@ export class RoomManager {
       // ama CANLI (bu instance'a özgü) alanlara dokunma.
       local.private         = !!record.private;
       local.status          = record.status;
-      local.playerCount     = record.playerCount ?? local.playerCount ?? 2; // geriye dönük uyum
+      local.playerCount     = [3, 4].includes(record.playerCount) ? record.playerCount : (local.playerCount ?? 2); // geriye dönük uyum
       local.collectionReady = record.collectionReady ?? local.collectionReady;
       local.lobbyReady      = record.lobbyReady ?? local.lobbyReady;
       local.rematch         = record.rematch ?? local.rematch;
       if (record.engineState) {
-        local.engine = local.playerCount === 3
-          ? GameEngine3P.fromState(record.engineState)
-          : GameEngine.fromState(record.engineState);
+        local.engine = engineClassFor(local.playerCount).fromState(record.engineState);
       }
       for (const pid of Object.keys(record.slots)) {
         const r = record.slots[pid];
@@ -1464,7 +1688,7 @@ export class RoomManager {
 
   /**
    * Slot atar veya token ile reconnect yapar. room.slots'un anahtarlarına
-   * göre çalışır — 2 veya 3 kişilik odada aynı kod yolu geçerlidir.
+   * göre çalışır — 2, 3 veya 4 kişilik odada aynı kod yolu geçerlidir.
    *
    * @returns {{ playerId: string, reconnectToken: string }}
    */
@@ -1590,7 +1814,7 @@ export class RoomManager {
 
   /**
    * Oda kaydını (lobi dahil) Redis'e yazar — ws/timer gibi canlı alanlar
-   * hariç. `room.slots`'un anahtarlarına göre GENEL çalışır (2 veya 3).
+   * hariç. `room.slots`'un anahtarlarına göre GENEL çalışır (2, 3 veya 4).
    */
   async #persistRoom(room) {
     const slotsRecord = {};
@@ -1624,6 +1848,7 @@ export class RoomManager {
       waiting: rooms.filter(r => r.status === 'waiting').length,
       playing2p: rooms.filter(r => r.status === 'playing' && r.playerCount === 2).length,
       playing3p: rooms.filter(r => r.status === 'playing' && r.playerCount === 3).length,
+      playing4p: rooms.filter(r => r.status === 'playing' && r.playerCount === 4).length,
     };
   }
 }
