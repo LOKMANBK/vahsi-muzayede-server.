@@ -1,7 +1,7 @@
 // =========================================================
-//  AuctionEngine3P.js — 3 Kişilik Müzayede Motoru
+//  AuctionEngine4P.js — 4 Kişilik Müzayede Motoru
 //
-//  Kural referansları: 3_kisilik_mod_kurallari.md v4, Bölüm C-G.
+//  Kural referansları: 4_kisilik_mod_kurallari.md v2, Bölüm C-G.
 // =========================================================
 
 import { ANIMALS } from './animals.js';
@@ -10,8 +10,8 @@ import {
   otherPlayers, activeIds, brokeWithRoomIds, nonForfeitedIds,
   currentQueueItem, playerStatus,
   makeAuction, makeFreeChoice, makeRoundResult, makeLogLine,
-} from './GameState3P.js';
-import { computeFinalRanking } from './BattleEngine3P.js';
+} from './GameState4P.js';
+import { computeFinalRanking } from './BattleEngine4P.js';
 
 // ─── Yardımcılar ──────────────────────────────────────────
 
@@ -28,9 +28,9 @@ function randInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-/** Kural 5: 15 rastgele müzayede öğesi üretir. */
+/** Kural 5: 20 rastgele müzayede öğesi üretir. */
 export function buildQueue() {
-  return shuffle(ANIMALS).slice(0, 15).map((animal) => ({
+  return shuffle(ANIMALS).slice(0, 20).map((animal) => ({
     animal,
     quantity: randInt(animal.qty[0], animal.qty[1]),
   }));
@@ -49,7 +49,7 @@ function awardAnimal(player, item, price, round) {
   return { ...player, balance: player.balance - price, animals: [...player.animals, entry] };
 }
 
-/** Kural 15/30: tur_no % 3 ile başlayıp uygun (aktif ya da parasız-yeri-var) ilk oyuncuyu bulur. */
+/** Kural 16/30: tur_no % 4 ile başlayıp uygun (aktif ya da parasız-yeri-var) ilk oyuncuyu bulur. */
 function firstMatching(state, predicate) {
   const startIdx = state.round % PLAYER_IDS.length;
   for (let i = 0; i < PLAYER_IDS.length; i++) {
@@ -63,20 +63,26 @@ function firstMatching(state, predicate) {
 function auctionPhaseShouldEnd(state) {
   if (state.round >= state.totalRounds) return true;
   const remaining = nonForfeitedIds(state);
-  if (remaining.length === 0) return true; // Kural 12
+  if (remaining.length === 0) return true; // Kural 12 (bkz. not — pratikte erişilemez, Kural 14 önce yakalar)
   return remaining.every((id) => playerStatus(state.players[id]) === 'dolu');
 }
 
 // ─── Tur Başlatma ─────────────────────────────────────────
 
+/**
+ * Gerçek çalışma sırası dokümandaki kavramsal sıradan (10→11→14) farklıdır —
+ * doküman notunda da belirtildiği gibi kod her zaman ÖNCE Kural 14 (erken
+ * bitiş), SONRA Kural 11 (faz bitişi), EN SON Kural 10 (aktif sayısına göre
+ * dallanma) sırasıyla çalışır. Bu sıra 3P'den birebir miras alınmıştır.
+ */
 export function beginRound(state) {
-  // Kural 14 (A3) — ayrılmamış oyuncu sayısı 1'e düştüyse maç anında biter.
+  // Kural 14 — ayrılmamış oyuncu sayısı 1'e düştüyse maç anında biter.
   const remaining = nonForfeitedIds(state);
   if (remaining.length <= 1) {
     const next = { ...state, status: STATUS.FINAL, matchEndedEarly: true, auction: null };
     // Final sıralaması burada hesaplanıp state'e yazılır — client'a ayrıca
-    // göndermezsek 1./2./3. sırayı hiç gösteremez (tiebreak rastgele
-    // olduğu için client kendi başına güvenilir biçimde tekrar hesaplayamaz).
+    // göndermezsek sırayı hiç gösteremez (tiebreak rastgele olduğu için
+    // client kendi başına güvenilir biçimde tekrar hesaplayamaz).
     const finalRanking = computeFinalRanking(next);
     const withRanking = { ...next, finalRanking };
     return { state: withRanking, event: { type: 'MATCH_ENDED_EARLY', reason: 'not_enough_players', remaining, finalRanking } };
@@ -90,7 +96,7 @@ export function beginRound(state) {
   const item   = currentQueueItem(state);
   const active = activeIds(state);
 
-  // Kural 10 — 2 veya 3 aktif → müzayede
+  // Kural 10 — 2, 3 veya 4 aktif → müzayede (bu dal aktif sayısına duyarsızdır)
   if (active.length >= 2) {
     const firstBidderId = firstMatching(state, (id) => active.includes(id));
     const next = {
@@ -105,10 +111,12 @@ export function beginRound(state) {
     const deciderId = active[0];
     const others    = otherPlayers(deciderId);
     const broke     = brokeWithRoomIds(state);
+    // Kural 27 — 4P'de bu liste 1, 2 veya 3 oyuncu içerebilir (3P'de en
+    // fazla 2'ydi). Bu satır sayıya duyarsızdır, doğal olarak genellenir.
     const giftCandidateIds = others.filter((id) => broke.includes(id));
 
     if (giftCandidateIds.length === 0) {
-      // Kural 25 — diğer ikisi de dolu/ayrılmış → otomatik 1 TL
+      // Kural 25 — diğer üçü de dolu/ayrılmış → otomatik 1 TL
       const resultData  = { item, winnerId: deciderId, price: 1, auto: true, reason: 'sole_active_auto' };
       const roundResult = makeRoundResult(resultData);
       const players = { ...state.players, [deciderId]: awardAnimal(state.players[deciderId], item, 1, state.round) };
@@ -147,9 +155,9 @@ export function beginRound(state) {
 // ─── Serbest Seçim (AL / HEDİYE ET) ────────────────────────
 
 /**
- * Kural 26 (v4 — A2 düzeltmesi): AL = 1 TL, HEDİYE ET = bedava.
+ * Kural 26: AL = 1 TL, HEDİYE ET = bedava.
  * @param {'take'|'gift'} choice
- * @param {string|null} giftTargetId — choice==='gift' ise zorunlu
+ * @param {string|null} giftTargetId — choice==='gift' ise zorunlu, giftCandidateIds içinde olmalı
  */
 export function chooseFreeItem(state, deciderId, choice, giftTargetId = null) {
   if (state.status !== STATUS.FREE_CHOICE) {
@@ -162,7 +170,7 @@ export function chooseFreeItem(state, deciderId, choice, giftTargetId = null) {
   const item = currentQueueItem(state);
 
   if (choice === 'take') {
-    const price = 1; // Kural 26 — A2 düzeltmesi: AL artık 1 TL (eskiden bedavaydı)
+    const price = 1; // Kural 26
     const resultData  = { item, winnerId: deciderId, price, auto: false, reason: 'free_choice_take' };
     const roundResult = makeRoundResult(resultData);
     const players = { ...state.players, [deciderId]: awardAnimal(state.players[deciderId], item, price, state.round) };
@@ -174,6 +182,9 @@ export function chooseFreeItem(state, deciderId, choice, giftTargetId = null) {
   }
 
   if (choice === 'gift') {
+    // Kural 27 — 4P'de giftCandidateIds 1-3 aday içerebilir; hedef bunlardan
+    // biri OLMAK ZORUNDADIR (decider'ın rastgele bir oyuncuya değil, yalnızca
+    // gerçekten parasız-yeri-olan bir adaya hediye edebilmesini garanti eder).
     if (!giftTargetId || !state.freeChoice.giftCandidateIds.includes(giftTargetId)) {
       return { ok: false, state, error: 'Geçersiz hediye hedefi.' };
     }
@@ -244,9 +255,9 @@ export function pass(state, passerId) {
 }
 
 /**
- * Sıradaki uygun oyuncuyu bulur: aktif olmalı (forfeited/dolu hariç),
- * bu turda pas geçmemiş olmalı, mevcut en yüksek teklif sahibi olmamalı.
- * Kimse kalmazsa null döner.
+ * Kural 19 — sıradaki uygun oyuncuyu (saat yönünde) bulur: aktif olmalı
+ * (forfeited/dolu hariç), bu turda pas geçmemiş olmalı, mevcut en yüksek
+ * teklif sahibi olmamalı. Kimse kalmazsa null döner.
  *
  * NOT (Kural 35): forfeited bir oyuncu currentBid.bidderId ise bu döngü onu
  * hiçbir zaman "sıradaki" olarak seçmez (aktif değildir) — ama bidini de
@@ -307,15 +318,16 @@ export function advanceRound(state) {
 // ─── Forfeit Sırasında Serbest Seçim Otomatik Çözümü ───────
 
 /**
- * Kritik kilitlenme düzeltmesi (4_kisilik_mod_kurallari.md v2, Kural 37-B —
- * bu hata 3P kodundan miras olduğu için burada da düzeltilmiştir).
+ * Kural 37-B — KRİTİK kilitlenme düzeltmesi. 4P dokümanının özellikle
+ * vurguladığı risk: FREE_CHOICE fazında TEK karar verici
+ * (freeChoice.deciderId) forfeit olursa, CHOOSE_FREE_ITEM mesajını
+ * gönderecek kimse kalmaz ve tur ASLA ilerlemez — oyun kilitlenir.
  *
- * FREE_CHOICE fazında TEK karar verici (freeChoice.deciderId) forfeit
- * olursa, CHOOSE_FREE_ITEM mesajını gönderecek kimse kalmaz ve tur ASLA
- * ilerlemez — oyun kilitlenir. Bu fonksiyon sunucu adına otomatik bir
- * "hediye et" kararı üretir: giftCandidateIds içinden (forfeit anında
- * kendisi de forfeited olmuş olabilecekler elenerek) envanteri en az olan
- * (eşitlikte firstMatching ile) oyuncuya öğe BEDAVA aktarılır.
+ * Bu fonksiyon sunucu adına otomatik bir "hediye et" kararı üretir:
+ * giftCandidateIds içinden (forfeit anında kendisi de forfeited olmuş
+ * olabilecekler elenerek) envanteri en az olan (eşitlikte firstMatching
+ * ile) oyuncuya öğe BEDAVA aktarılır. 4P'de giftCandidateIds 1-3 aday
+ * içerebileceğinden bu seçim mantığı hepsine aynı şekilde uygulanır.
  *
  * giftCandidateIds'in tamamı da forfeited ise (teorik olarak olmamalı —
  * FREE_CHOICE'a girildiğinde en az bir aday parasız-yeri-var'dı — ama

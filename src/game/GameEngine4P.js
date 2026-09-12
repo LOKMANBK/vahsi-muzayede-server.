@@ -1,19 +1,19 @@
 // =========================================================
-//  GameEngine3P.js — 3 Kişilik Merkezi Oyun Makinesi
+//  GameEngine4P.js — 4 Kişilik Merkezi Oyun Makinesi
 //
-//  2 kişilik GameEngine.js'e PARALEL bir sınıf. React/UI bağımlılığı yoktur.
+//  3 kişilik GameEngine3P.js'e PARALEL bir sınıf. React/UI bağımlılığı yoktur.
 // =========================================================
 
-import { makeInitialState, STATUS, nonForfeitedIds } from './GameState3P.js';
+import { makeInitialState, STATUS, nonForfeitedIds } from './GameState4P.js';
 import {
   buildQueue, beginRound, placeBid, pass, chooseFreeItem, advanceRound,
   resolveFreeChoiceOnForfeit,
-} from './AuctionEngine3P.js';
+} from './AuctionEngine4P.js';
 import {
   revealBattle, nextBattle, makeBattleState, computeFinalRanking,
-} from './BattleEngine3P.js';
+} from './BattleEngine4P.js';
 
-export class GameEngine3P {
+export class GameEngine4P {
   #state;
   #listeners = new Set();
 
@@ -122,13 +122,15 @@ export class GameEngine3P {
    * yalnızca players[id].forfeited=true set eder, auction state'ine dokunmaz.
    * Ayrılmamış oyuncu sayısı 1'e düşerse (Kural 14) maçı hemen bitirir.
    *
-   * KRİTİK DÜZELTME (Kural 37-B — 4P dokümanında tespit edilip buraya
-   * retrofit edildi): Eskiden bu metot yalnızca Kural 14'ü (erken bitiş)
-   * kontrol ediyordu. Oyun FREE_CHOICE fazındayken TAM DA karar verici
-   * (freeChoice.deciderId) forfeit olursa, CHOOSE_FREE_ITEM mesajını
-   * gönderecek kimse kalmıyor ve tur SONSUZA KADAR ilerlemiyordu — oyun
-   * kilitleniyordu. Artık bu durum resolveFreeChoiceOnForfeit ile otomatik
-   * çözülüyor (bkz. o fonksiyonun gerekçe notu).
+   * KRİTİK: Kural 33 ve 37-B, 4P'de "zorunlu" olarak işaretlenmiş iki
+   * kilitlenme riskiydi:
+   *  - Kural 33 (hazır-olma sayımı): forfeited oyuncular RoomManager'daki
+   *    ready-map'te otomatik hazır sayılmalı — bu düzeltme RoomManager.js
+   *    tarafında (#makeReadyMap ve #forfeit) yapılır, burada değil.
+   *  - Kural 37-B (bu metotta): oyun FREE_CHOICE fazındayken TAM DA karar
+   *    verici (freeChoice.deciderId) forfeit olursa, CHOOSE_FREE_ITEM
+   *    mesajını gönderecek kimse kalmaz ve tur SONSUZA KADAR ilerlemez.
+   *    Bu durum burada resolveFreeChoiceOnForfeit ile otomatik çözülür.
    */
   markForfeited(playerId) {
     if (!this.#state.players[playerId] || this.#state.players[playerId].forfeited) {
@@ -150,7 +152,7 @@ export class GameEngine3P {
       next = { ...next, finalRanking: computeFinalRanking(next) };
       matchEndedEarly = true;
     } else if (next.status === STATUS.FREE_CHOICE && next.freeChoice?.deciderId === playerId) {
-      // Kural 37-B — decider ayrıldı, kimse CHOOSE_FREE_ITEM gönderemez.
+      // Kural 37-B
       const resolved = resolveFreeChoiceOnForfeit(next);
       next = resolved.state;
       freeChoiceAutoResolved = resolved.event;
@@ -168,6 +170,6 @@ export class GameEngine3P {
   // ── Serialization ──────────────────────────────────────
 
   serialize()                { return JSON.stringify(this.#state); }
-  static deserialize(json)   { return new GameEngine3P(JSON.parse(json)); }
-  static fromState(state)    { return new GameEngine3P(state); }
+  static deserialize(json)   { return new GameEngine4P(JSON.parse(json)); }
+  static fromState(state)    { return new GameEngine4P(state); }
 }
